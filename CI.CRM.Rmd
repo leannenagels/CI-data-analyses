@@ -1,0 +1,2506 @@
+---
+title: "CI Results Plot"
+author: "Leanne Nagels"
+date: "Generated on: `r date()`"
+output: 
+  html_document:
+    toc: true
+    code_folding: show
+    toc_float: 
+        collapsed: false
+        smooth_scroll: true
+    number_sections: false
+---
+
+# Description 
+This R Markdown File can be used to plot results of CI children for the CRM experiment from the PICKA Project.
+
+# Load packages and data
+Load the required packages and download the required files. 
+
+```{r setup, message=F, echo=F, eval=T}
+# some custom options to generate a nice html file
+options(digits = 3)
+options(width=100)
+library(knitr)
+opts_chunk$set(cache=F, comment='#', tidy = T, tidy.opts=list(blank=T, width.cutoff=100), fig.align='center', message=T, warning=T, fig.width=8, fig.height=8, dev='png',eval=T)
+
+# test if the necessary packages are installed if not, install them
+packages <- c("ggplot2", "RColorBrewer", "reshape2","Rmisc","lmerTest","lme4","optimx","vctrs", "moments","ez","DescTools","optimx","ggpubr","ggnewscale","gtools")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())), repos='http://cran.us.r-project.org')  
+}
+
+# Load required packages
+library(ggplot2)
+library(RColorBrewer)
+library(reshape2)
+library(Rmisc)
+library(lmerTest)
+library(lme4)
+library(optimx)
+library(moments)
+library(ez)
+library(DescTools)
+library(optimx)
+library(ggpubr)
+library(ggnewscale)
+library(gtools)
+
+
+# Set PICKA WD for CI data
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/PICKA Experiments/')
+
+# Read CSV file Results Fishy
+CI.dat<-read.csv('./Experiments/CRM/results/pickacrm_db_responses.csv',header=TRUE)
+
+
+# Leave out partial data from subject nl_CIK009 
+CI.dat<-CI.dat[CI.dat$subject!="nl_CIK009",]
+
+# Make binomial variable acc, 0 is 1 point (only color or number correct) and 1 if 2 points (both color and number correct)
+CI.dat$acc<-0
+CI.dat[CI.dat$correct==2,]$acc <- 1
+
+# Normalize f0 and vtl differences
+CI.dat$dF0_norm<-((CI.dat$dF0*-1)/12)-0.5
+CI.dat$dVTL_norm<-(CI.dat$dVTL/3.8)-0.5
+
+
+# Open demographics table with subject,age (yy;mm), group, gender, and vocabulary score
+CI.dem<-read.table('demographsCI.txt', header=TRUE)
+
+
+
+# Merge dataframes
+CI.dat<-merge.data.frame(CI.dat,CI.dem, by='subject')
+
+# Add log-transformed age variable
+CI.dat$age_log<-log(CI.dat$age)
+
+
+### Set PICKA WD for NH data
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/PICKA Experiments_NH/')
+
+# Read CSV file Results Fishy
+nh.dat<-read.csv('./Experiments/CRM/results/pickacrm_db_responses.csv',header=TRUE)
+
+# Make binomial variable acc, 0 is 1 point (only color or number correct) and 1 if 2 points (both color and number correct)
+nh.dat$acc<-0
+nh.dat[nh.dat$correct==2,]$acc <- 1
+
+# Normalize f0 and vtl differences
+nh.dat$dF0_norm<-((nh.dat$dF0*-1)/12)-0.5
+nh.dat$dVTL_norm<-(nh.dat$dVTL/3.8)-0.5
+
+# Open demographics table with subject,age (yy;mm), group, gender, and vocabulary score
+nh.dem<-read.table('demographs.txt', header=TRUE)
+dem<-nh.dem
+
+# Merge dataframes
+nh.dat<-merge.data.frame(nh.dat,nh.dem, by='subject')
+
+# Add log-transformed age variable
+nh.dat$age_log<-log(nh.dat$age)
+
+# no UK or CI participants in NH datastruct
+nh.dat <- nh.dat[grepl('gb',nh.dat$subject)!=1,]
+nh.dat <- nh.dat[grepl('CI',nh.dat$subject)!=1,]
+
+
+#nh.dat$subject <- droplevels(nh.dat$subject)
+
+#create same number of variables to merge data frames
+nh.dat$expci <- '-'
+
+#add variable to identify CI and NH groups
+CI.dat$CI<-"CI"
+nh.dat$CI<-"NH"
+
+#merge data frames
+dat<-rbind(CI.dat, nh.dat)
+
+# Variable ci is a factor
+dat$CI<-as.factor(dat$CI)
+dat$CI<-relevel(dat$CI, ref="NH")
+
+
+#Add exp CI variable for CI children
+dat$expci<-0
+subjects<-unique(CI.dat$subject)
+for (i in subjects){
+dat[dat$subject==i,]$expci<-CI.dem[CI.dem$subject==i,]$expci
+}
+
+
+```
+
+
+# Information data
+
+```{r lookat}
+head(dat)
+str(dat)
+#summary(dat)
+
+```
+
+
+
+
+# Mean accuracy scores per group per tmr
+``` {r mean accuracy scores per group and tmr}
+
+# Make masker speech voice condition variable
+dat$condition<-0
+dat$condition<-ifelse(dat$dF0==0 & dat$dVTL==0.0, 1, dat$condition)
+dat$condition<-ifelse(dat$dF0==0 & dat$dVTL==3.8, 2, dat$condition)
+dat$condition<-ifelse(dat$dF0==-12 & dat$dVTL==0.0, 3, dat$condition)
+dat$condition<-ifelse(dat$dF0==-12 & dat$dVTL==3.8, 4, dat$condition)
+
+dat$condition_name<-0
+dat$condition_name<-ifelse(dat$dF0==0 & dat$dVTL==0.0, "F0: 0 st; VTL: 0 st", dat$condition_name)
+dat$condition_name<-ifelse(dat$dF0==0 & dat$dVTL==3.8, "F0: 0 st; VTL: 3.8 st", dat$condition_name)
+dat$condition_name<-ifelse(dat$dF0==-12 & dat$dVTL==0.0, "F0: -12 st; VTL: 0 st", dat$condition_name)
+dat$condition_name<-ifelse(dat$dF0==-12 & dat$dVTL==3.8, "F0: -12 st; VTL: 3.8 st", dat$condition_name)
+
+dat$condition_name <- ordered(dat$condition_name, levels = c("F0: 0 st; VTL: 0 st", "F0: 0 st; VTL: 3.8 st", "F0: -12 st; VTL: 0 st", "F0: -12 st; VTL: 3.8 st"))
+
+
+# 2 points per item so divide by 2 * 100 for percentage
+means <- summarySE(dat, measurevar="acc", groupvars=c("subject", "group","age", "tmr","condition_name"))
+means$acc <- ((means$acc*100))
+
+means
+
+
+```
+
+
+
+# Figure 2: Accuracy scores per TMR and voice condition
+``` {r fig 2}
+
+
+# Mean accuracy scores per group per tmr for F0 and VTL
+# Calculate mean Accuracy scores
+# per group
+means2 <- summarySE(dat, measurevar="acc", groupvars=c("subject", "group","age","tmr", "dF0", "dVTL","condition","condition_name","CI"))
+means2$acc <- ((means2$acc*100))
+
+means2$dF0<-as.factor(as.character(means2$dF0))
+
+# Add variable plot_age for making graphs with adults
+means2$plot_age<-means2$age
+adults_num <- length(unique(means2$subject[means2$group=="adults"]))
+means2[means2$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+str(means2)
+
+
+means2$plot_tmr<-means2$tmr
+means2[means2$plot_tmr=="6",]$plot_tmr<-"TMR +6 dB"
+means2[means2$plot_tmr=="0",]$plot_tmr<-"TMR 0 dB"
+means2[means2$plot_tmr=="-6",]$plot_tmr<-"TMR -6 dB"
+means2[means2$plot_tmr=="12",]$plot_tmr<-"TMR +12 dB"
+
+means2$plot_tmr<-as.factor(as.character(means2$plot_tmr))
+means2$plot_tmr <- ordered(means2$plot_tmr, levels = c("TMR -6 dB", "TMR 0 dB", "TMR +6 dB","TMR +12 dB"))
+
+
+
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+
+# Figure 7 plot TMRxvoice condition
+fig7 <- ggplot(means2, aes(x = plot_age, y = acc, fill=group)) +
+    geom_boxplot(data=means2[means2$CI=="NH",], aes(x = plot_age,
+                                                    y = acc, 
+      fill = group), alpha=0.1, color="grey",show.legend = FALSE,
+      outlier.shape = NA) + 
+    geom_point(data=means2[means2$CI=="CI",], aes(x = age, y = acc,
+                                                  color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+    scale_y_continuous(name = "Accuracy (%)", breaks = c(0,25,50,75,100), limits=c(-0.1,100.1))+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    facet_wrap(~ plot_tmr + condition_name, nrow=4) +
+  theme_bw() + 
+  theme(plot.title = element_blank(),
+        text = element_text(size = 22),
+        strip.text = element_text(size = 22),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 22),
+        axis.text.y=element_text(size = 22),
+        legend.text = element_text(size = 22),
+        legend.position = "bottom",
+        legend.title = element_text(size=22, face="bold"))
+
+# Show plot
+fig7
+
+
+
+ggsave(file="Figure 7 - CRM CI data.png", units = c("cm"),dpi = 600, height = 50, width = 50)
+
+ggsave(file="Figure 7 - CRM CI data.pdf", units = c("cm"),dpi = 600, height = 50, width = 50)
+
+
+# For NVA meeting without +12 dB TMR condition
+
+means2.nva<-means2[means2$tmr!="12",]
+means2.nva$plot_tmr<-droplevels(means2.nva$plot_tmr)
+
+# Figure 7 plot TMRxvoice condition
+fig.nva <- ggplot(means2.nva, aes(x = plot_age, y = acc, fill=group)) +
+    geom_boxplot(data=means2.nva[means2.nva$CI=="NH",], aes(x = plot_age,
+                                                    y = acc, 
+      fill = group), alpha=0.1, color="grey",show.legend = FALSE,
+      outlier.shape = NA) + 
+    geom_point(data=means2.nva[means2.nva$CI=="CI",], aes(x = age, y = acc,
+                                                  color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+    scale_y_continuous(name = "Accuracy (%)", breaks = c(0,25,50,75,100), limits=c(-0.1,100.1))+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    facet_wrap(~ plot_tmr + condition_name, nrow=3) +
+  theme_bw() + 
+  theme(plot.title = element_blank(),
+        text = element_text(size = 22),
+        strip.text = element_text(size = 22),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 22),
+        axis.text.y=element_text(size = 22),
+        legend.text = element_text(size = 22),
+        legend.position = "bottom",
+        legend.title = element_text(size=22, face="bold"))
+
+# Show plot
+fig.nva
+
+
+
+means3 <- summarySE(dat, measurevar="acc", groupvars=c("subject","group","age","tmr","CI"))
+means3$acc <- ((means3$acc*100))
+
+
+# Add variable plot_age for making graphs with adults
+means3$plot_age<-means3$age
+adults_num <- length(unique(means3$subject[means3$group=="adults"]))
+means3[means3$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+str(means3)
+
+means3<-means3[means3$tmr!="12",]
+
+means3$plot_tmr<-means3$tmr
+means3[means3$plot_tmr=="6",]$plot_tmr<-"TMR +6 dB"
+means3[means3$plot_tmr=="0",]$plot_tmr<-"TMR 0 dB"
+means3[means3$plot_tmr=="-6",]$plot_tmr<-"TMR -6 dB"
+
+means3$plot_tmr<-as.factor(as.character(means3$plot_tmr))
+levels(means3$plot_tmr) <- c("TMR -6 dB", "TMR 0 dB", "TMR +6 dB")
+
+
+tmr_names <- c(
+                    `-6` = "TMR -6 dB",
+                    `0` = "TMR 0 dB",
+                    `6` = "TMR +6 dB"
+                    )
+
+
+# Figure 7 plot TMRxvoice condition
+fig.nva2 <- ggplot(means3, aes(x = plot_age, y = acc, fill=group)) +
+    geom_boxplot(data=means3[means3$CI=="NH",], aes(x = plot_age,
+                                                    y = acc, 
+      fill = group), alpha=0.1, color="grey",show.legend = FALSE,
+      outlier.shape = NA) + 
+    geom_point(data=means3[means3$CI=="CI",], aes(x = age, y = acc,
+                                                  color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=5,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+    scale_y_continuous(name = "Accuracy (%)", breaks = c(0,25,50,75,100), limits=c(-0.1,100.1))+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    facet_wrap(~ tmr, labeller = as_labeller(tmr_names)) +
+  theme_bw() + 
+  theme(plot.title = element_blank(),
+        text = element_text(size = 28),
+        strip.text = element_text(size = 28),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 28),
+        axis.text.y=element_text(size = 28),
+        legend.text = element_text(size = 28),
+        legend.position = "none")
+
+# Show plot
+fig.nva2
+
+
+
+
+ggsave(file="Figure NVA - Accuracy CRM CI data.png", units = c("cm"),dpi = 600, height = 25, width = 50)
+
+
+
+```
+
+
+
+# RQ1 - Check performance as a function of age
+``` {r glmer age performance}
+
+# convert acc to factor variable
+dat$acc<-as.factor(as.character(dat$acc))
+
+dat$trial<-dat$i
+
+dat.kids<-dat[dat$group!="adults",]
+
+#Correct ~ δF0*δVTL *log(Age)*Group + δF0*δVTL*TMR*Group (1|participant)
+
+#+12 dB condition for CI children was not analyzed here
+#5592 to 5628
+dat.kids<-dat.kids[dat.kids$tmr!="12",]
+
+### Full model with four-way interaction
+
+#correct ~ δF0*δVTL*TMR + δF0*TMR*(log)age + δVTL*log(age) + (1|participant).
+
+CRM.m0 <- glmer(acc ~ CI + dF0_norm + age + dVTL_norm + tmr +
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+
+CRM.m1 <- glmer(acc ~ CI*dF0_norm + age + dVTL_norm + tmr + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m0, CRM.m1)
+
+
+
+CRM.m2 <- glmer(acc ~ CI*age + dF0_norm + dVTL_norm + tmr + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m0, CRM.m2)
+
+
+CRM.m3 <- glmer(acc ~ CI*age + dF0_norm + CI*dVTL_norm + tmr + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m2, CRM.m3)
+
+
+CRM.m4 <- glmer(acc ~ CI*age + dF0_norm + dVTL_norm + CI*tmr + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m2, CRM.m4)
+
+
+
+CRM.m5 <- glmer(acc ~ CI*age + dF0_norm*dVTL_norm + CI*tmr + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m4, CRM.m5)
+
+
+
+CRM.m6 <- glmer(acc ~ CI*age + dF0_norm*dVTL_norm + CI*tmr + tmr*age + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m5, CRM.m6)
+
+
+CRM.m7 <- glmer(acc ~ CI*age + dF0_norm*age + dF0_norm*dVTL_norm + CI*tmr +  
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m5, CRM.m7)
+
+
+CRM.m8 <- glmer(acc ~ CI*age + dVTL_norm*age + dF0_norm*dVTL_norm + CI*tmr +  
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m5, CRM.m8)
+
+
+
+CRM.m9 <- glmer(acc ~ CI*age + dF0_norm*tmr + dF0_norm*dVTL_norm + CI*tmr +  
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m5, CRM.m9)
+
+
+
+CRM.m10 <- glmer(acc ~ CI*age + dF0_norm*tmr + dVTL_norm*tmr + dF0_norm*dVTL_norm + CI*tmr +  
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+#significant improvement
+anova(CRM.m9, CRM.m10)
+
+# Add three-way interaction dF0*dVTL*tmr
+CRM.m11 <- glmer(acc ~ CI*age + dF0_norm*dVTL_norm*tmr + CI*tmr +  
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+# no significant improvement
+anova(CRM.m10, CRM.m11)
+
+
+# Add interaction tmr*age
+CRM.m12 <- glmer(acc ~ CI*age + dF0_norm*tmr + dVTL_norm*tmr + dF0_norm*dVTL_norm + CI*tmr + tmr*age +   
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+# no significant improvement
+anova(CRM.m10, CRM.m12)
+
+
+
+
+# Add interaction dF0*CI
+CRM.m13 <- glmer(acc ~ CI*age + dF0_norm*tmr + dVTL_norm*tmr + dF0_norm*dVTL_norm + CI*tmr + dF0_norm*CI + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+# no significant improvement
+anova(CRM.m10, CRM.m13)
+
+# Add interaction dVTL*CI
+CRM.m14 <- glmer(acc ~ CI*age + dF0_norm*tmr + dVTL_norm*tmr + dF0_norm*dVTL_norm + CI*tmr + dVTL_norm*CI + 
+                    (1|subject),
+                data=dat.kids, family=binomial,
+                control=glmerControl(optimizer="bobyqa",                      optCtrl=list(maxfun=100000)))
+
+# no significant improvement
+anova(CRM.m10, CRM.m14)
+
+
+
+# CRM.m10 is the best most parsimonious fitting model
+summary(CRM.m10)
+
+
+```
+
+
+
+# RQ2 - BK units
+``` {r Bk units}
+
+
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+
+
+# Coefficients for F0
+CRM.coef.f0 <- glmer(acc ~ (dF0_norm|subject), 
+                  data = dat, 
+                  family=binomial,
+                  control = glmerControl(optimizer="optimx",
+                                                 optCtrl =
+                                                list(method="nlminb")))
+
+coef(CRM.coef.f0)
+
+
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.f0 <- coef(CRM.coef.f0)$subject
+c.f0$subject <- rownames(c.f0)
+c.f0$dF0_norm.coef<-c.f0$dF0_norm
+c.f0$dF0_norm<-NULL
+
+head(c.f0)
+
+
+# Convert coefficients to BK units
+c.f0$dF0.bk <- c.f0$dF0_norm.coef/(12*log(2))
+
+# Add dem to c dataframe
+c.f0<-merge.data.frame(c.f0, nh.dem, by='subject')
+
+
+
+# Coefficients for VTL
+CRM.coef.vtl <- glmer(acc ~ (dVTL_norm|subject), 
+                  data = dat, 
+                  family=binomial,
+                  control = glmerControl(optimizer="optimx",
+                                                 optCtrl =
+                                                list(method="nlminb")))
+
+coef(CRM.coef.vtl)
+
+
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.vtl <- coef(CRM.coef.vtl)$subject
+c.vtl$subject <- rownames(c.vtl)
+c.vtl$dVTL_norm.coef<-c.vtl$dVTL_norm
+c.vtl$dVTL_norm<-NULL
+
+head(c.vtl)
+
+
+# Convert coefficients to BK units
+c.vtl$dVTL.bk = c.vtl$dVTL_norm.coef/(3.8*log(2))
+
+
+# Add dem to c dataframe
+c.vtl<-merge.data.frame(c.vtl, nh.dem, by='subject')
+
+
+
+# 
+# CRM.coef <- glmer(acc ~ (dF0_norm+dVTL_norm|subject), 
+#                   data = dat, 
+#                   family=binomial)
+# 
+# coef(CRM.coef)
+# 
+# 
+# 
+# # Add dem to c dataframe
+# # store cue weights for df0_norm and dvtl_norm
+# c <- coef(CRM.coef)$subject
+# c$subject <- rownames(c)
+# c$dF0_norm.coef<-c$dF0_norm
+# c$dVTL_norm.coef<-c$dVTL_norm
+# c$dF0_norm<-NULL
+# c$dVTL_norm<-NULL
+# 
+# head(c)
+# 
+# 
+# 
+# # Convert coefficients to BK units
+# c$dF0.bk = c$dF0_norm.coef/(12*log(2))
+# c$dVTL.bk = c$dVTL_norm.coef/(3.8*log(2))
+# 
+# 
+# 
+# # Add dem to c dataframe
+# c<-merge.data.frame(c, nh.dem, by='subject')
+# 
+# 
+# 
+# # # Add df0_norm and dvtl_norm coefficients to dat dataframe
+# # dat<-merge.data.frame(dat,c, by='subject')
+
+
+
+```
+
+
+# RQ3: Bk per TMR
+``` {r bk per tmr}
+
+
+# subset data per tmr
+# -6 TMR
+dat.min6<-dat[dat$tmr=="-6",]
+dat.0<-dat[dat$tmr=="0",]
+dat.plus6<-dat[dat$tmr=="6",]
+dat.plus12<-dat[dat$tmr=="12",]
+
+
+# Coefficients for F0
+CRM.coef.min6.f0 <- glmer(acc ~ (dF0_norm|subject),
+                          data = dat.min6, family=binomial)
+
+coef(CRM.coef.min6.f0)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.min6.f0 <- coef(CRM.coef.min6.f0)$subject
+c.min6.f0$subject <- rownames(c.min6.f0)
+c.min6.f0$dF0_norm.coef<-c.min6.f0$dF0_norm
+c.min6.f0$dF0_norm<-NULL
+
+head(c.min6.f0)
+
+# Convert coefficients to BK units
+c.min6.f0$dF0.bk = c.min6.f0$dF0_norm.coef/(12*log(2))
+
+# Add dem to c dataframe
+c.min6.f0<-merge.data.frame(c.min6.f0, dem, by='subject')
+
+c.min6.f0$CI<-0
+c.min6.f0[grepl('CI',c.min6.f0$subject)==1,]$CI<-"CI"
+c.min6.f0[grepl('NH',c.min6.f0$subject)==1,]$CI<-"NH"
+
+
+# Coefficients for VTL
+CRM.coef.min6.vtl <- glmer(acc ~ (dVTL_norm|subject),
+                          data = dat.min6, family=binomial)
+
+coef(CRM.coef.min6.vtl)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.min6.vtl <- coef(CRM.coef.min6.vtl)$subject
+c.min6.vtl$subject <- rownames(c.min6.vtl)
+c.min6.vtl$dVTL_norm.coef<-c.min6.vtl$dVTL_norm
+c.min6.vtl$dVTL_norm<-NULL
+
+head(c.min6.vtl)
+
+# Convert coefficients to BK units
+c.min6.vtl$dVTL.bk = c.min6.vtl$dVTL_norm.coef/(3.8*log(2))
+
+
+# Add dem to c dataframe
+c.min6.vtl<-merge.data.frame(c.min6.vtl, dem, by='subject')
+
+c.min6.vtl$CI<-0
+c.min6.vtl[grepl('CI',c.min6.vtl$subject)==1,]$CI<-"CI"
+c.min6.vtl[grepl('NH',c.min6.vtl$subject)==1,]$CI<-"NH"
+
+
+# Add plot age variable for plot
+c.min6.f0$dVTL_norm.coef<-0
+c.min6.f0$dVTL.bk<-0
+
+c.min6.vtl$dF0_norm.coef<-0
+c.min6.vtl$dF0.bk<-0
+
+c.min6.plot<-rbind(c.min6.f0, c.min6.vtl)
+
+c.min6.plot$dir_voice<-0
+c.min6.plot[c.min6.plot$dVTL.bk==0,]$dir_voice<-"F0"
+c.min6.plot[c.min6.plot$dF0.bk==0,]$dir_voice<-"VTL"
+
+c.min6.plot$bk<-0
+c.min6.plot[c.min6.plot$dir_voice=="F0",]$bk<-c.min6.plot[c.min6.plot$dir_voice=="F0",]$dF0.bk
+c.min6.plot[c.min6.plot$dir_voice=="VTL",]$bk<-c.min6.plot[c.min6.plot$dir_voice=="VTL",]$dVTL.bk
+
+
+# Add plot age variable for plot
+c.min6.plot$plot_age<-c.min6.plot$age
+c.min6.plot[c.min6.plot$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+# Make plot
+min6 <- ggplot(c.min6.plot, aes(x = plot_age, y = bk, fill =group)) +
+    geom_boxplot(data=c.min6.plot[c.min6.plot$CI=="NH",],
+                 aes(x = plot_age, y = bk, fill = group),
+                 alpha=0.1, color="grey",show.legend = FALSE,
+                 outlier.shape = NA) + 
+    geom_point(data=c.min6.plot[c.min6.plot$CI=="CI",], 
+               aes(x = age, y = bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+scale_y_continuous(name = "Benefit (Bk/st)") + 
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ dir_voice) +
+  ggtitle("TMR -6 dB") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5),
+        text = element_text(size = 16),
+        axis.text.x=element_text(size = 16, hjust=0.5),
+        axis.text.y=element_text(size = 16, hjust=0.5),
+        axis.title = element_text(face="bold"))
+# Show boxplot F
+min6
+
+
+# subset data per tmr
+# 0 TMR
+
+# Coefficients for F0
+CRM.coef.0.f0 <- glmer(acc ~ (dF0_norm|subject),
+                          data = dat.0, family=binomial)
+
+coef(CRM.coef.0.f0)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.0.f0 <- coef(CRM.coef.0.f0)$subject
+c.0.f0$subject <- rownames(c.0.f0)
+c.0.f0$dF0_norm.coef<-c.0.f0$dF0_norm
+c.0.f0$dF0_norm<-NULL
+
+head(c.0.f0)
+
+# Convert coefficients to BK units
+c.0.f0$dF0.bk = c.0.f0$dF0_norm.coef/(12*log(2))
+
+# Add dem to c dataframe
+c.0.f0<-merge.data.frame(c.0.f0, dem, by='subject')
+
+c.0.f0$CI<-0
+c.0.f0[grepl('CI',c.0.f0$subject)==1,]$CI<-"CI"
+c.0.f0[grepl('NH',c.0.f0$subject)==1,]$CI<-"NH"
+
+
+# Coefficients for VTL
+CRM.coef.0.vtl <- glmer(acc ~ (dVTL_norm|subject),
+                          data = dat.0, family=binomial)
+
+coef(CRM.coef.0.vtl)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.0.vtl <- coef(CRM.coef.0.vtl)$subject
+c.0.vtl$subject <- rownames(c.0.vtl)
+c.0.vtl$dVTL_norm.coef<-c.0.vtl$dVTL_norm
+c.0.vtl$dVTL_norm<-NULL
+
+head(c.0.vtl)
+
+# Convert coefficients to BK units
+c.0.vtl$dVTL.bk = c.0.vtl$dVTL_norm.coef/(3.8*log(2))
+
+
+# Add dem to c dataframe
+c.0.vtl<-merge.data.frame(c.0.vtl, dem, by='subject')
+
+c.0.vtl$CI<-0
+c.0.vtl[grepl('CI',c.0.vtl$subject)==1,]$CI<-"CI"
+c.0.vtl[grepl('NH',c.0.vtl$subject)==1,]$CI<-"NH"
+
+
+# Add plot age variable for plot
+c.0.f0$dVTL_norm.coef<-0
+c.0.f0$dVTL.bk<-0
+
+c.0.vtl$dF0_norm.coef<-0
+c.0.vtl$dF0.bk<-0
+
+c.0.plot<-rbind(c.0.f0, c.0.vtl)
+
+c.0.plot$dir_voice<-0
+c.0.plot[c.0.plot$dVTL.bk==0,]$dir_voice<-"F0"
+c.0.plot[c.0.plot$dF0.bk==0,]$dir_voice<-"VTL"
+
+c.0.plot$bk<-0
+c.0.plot[c.0.plot$dir_voice=="F0",]$bk<-c.0.plot[c.0.plot$dir_voice=="F0",]$dF0.bk
+c.0.plot[c.0.plot$dir_voice=="VTL",]$bk<-c.0.plot[c.0.plot$dir_voice=="VTL",]$dVTL.bk
+
+
+# Add plot age variable for plot
+c.0.plot$plot_age<-c.0.plot$age
+c.0.plot[c.0.plot$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+# CRM.coef.0 <- glmer(acc ~ (dF0_norm+dVTL_norm|subject),
+#                           data = dat.0, family=binomial)
+# 
+# coef(CRM.coef.0)
+# 
+# # Add dem to c dataframe
+# # store cue weights for df0_norm and dvtl_norm
+# c.0 <- coef(CRM.coef.0)$subject
+# c.0$subject <- rownames(c.0)
+# c.0$dF0_norm.coef<-c.0$dF0_norm
+# c.0$dVTL_norm.coef<-c.0$dVTL_norm
+# c.0$dF0_norm<-NULL
+# c.0$dVTL_norm<-NULL
+# 
+# head(c.0)
+# 
+# # Convert coefficients to BK units
+# c.0$dF0.bk = c.0$dF0_norm.coef/(12*log(2))
+# c.0$dVTL.bk = c.0$dVTL_norm.coef/(3.8*log(2))
+# 
+# 
+# # Add dem to c dataframe
+# c.0<-merge.data.frame(c.0, nh.dem, by='subject')
+# 
+# c.0$CI<-0
+# c.0[grepl('CI',c.0$subject)==1,]$CI<-"CI"
+# c.0[grepl('NH',c.0$subject)==1,]$CI<-"NH"
+# 
+# 
+# # Add plot age variable for plot
+# # Make dataframe to plot in one figure
+# c.0.plot<-c.0[rep(1:nrow(c.0),each=2),]
+# c.0.plot$dir_voice<-c("F0","VTL")
+# c.0.plot$bk<-0
+# c.0.plot[c.0.plot$dir_voice=="F0",]$bk<-c.0.plot[c.0.plot$dir_voice=="F0",]$dF0.bk
+# c.0.plot[c.0.plot$dir_voice=="VTL",]$bk<-c.0.plot[c.0.plot$dir_voice=="VTL",]$dVTL.bk
+# 
+# # Add plot age variable for plot
+# c.0.plot$plot_age<-c.0.plot$age
+# c.0.plot[c.0.plot$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+# 
+
+
+
+# Make plot
+zero <- ggplot(c.0.plot, aes(x = plot_age, y = bk, fill =group)) +
+    geom_boxplot(data=c.0.plot[c.0.plot$CI=="NH",],
+                 aes(x = plot_age, y = bk, fill = group),
+                 alpha=0.1, color="grey",show.legend = FALSE,
+                 outlier.shape = NA) + 
+    geom_point(data=c.0.plot[c.0.plot$CI=="CI",], 
+               aes(x = age, y = bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+scale_y_continuous(name = "Benefit (Bk/st)") + 
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ dir_voice) +
+  ggtitle("TMR -6 dB") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5),
+        text = element_text(size = 16),
+        axis.text.x=element_text(size = 16, hjust=0.5),
+        axis.text.y=element_text(size = 16, hjust=0.5),
+        axis.title = element_text(face="bold"))
+# Show boxplot F
+zero
+
+
+
+# TMR plus 6 
+
+# Coefficients for F0
+CRM.coef.plus6.f0 <- glmer(acc ~ (dF0_norm|subject),
+                          data = dat.plus6, family=binomial)
+
+coef(CRM.coef.plus6.f0)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.plus6.f0 <- coef(CRM.coef.plus6.f0)$subject
+c.plus6.f0$subject <- rownames(c.plus6.f0)
+c.plus6.f0$dF0_norm.coef<-c.plus6.f0$dF0_norm
+c.plus6.f0$dF0_norm<-NULL
+
+head(c.plus6.f0)
+
+# Convert coefficients to BK units
+c.plus6.f0$dF0.bk = c.plus6.f0$dF0_norm.coef/(12*log(2))
+
+# Add dem to c dataframe
+c.plus6.f0<-merge.data.frame(c.plus6.f0, dem, by='subject')
+
+c.plus6.f0$CI<-0
+c.plus6.f0[grepl('CI',c.plus6.f0$subject)==1,]$CI<-"CI"
+c.plus6.f0[grepl('NH',c.plus6.f0$subject)==1,]$CI<-"NH"
+
+
+# Coefficients for VTL
+CRM.coef.plus6.vtl <- glmer(acc ~ (dVTL_norm|subject),
+                          data = dat.plus6, family=binomial)
+
+coef(CRM.coef.plus6.vtl)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.plus6.vtl <- coef(CRM.coef.plus6.vtl)$subject
+c.plus6.vtl$subject <- rownames(c.plus6.vtl)
+c.plus6.vtl$dVTL_norm.coef<-c.plus6.vtl$dVTL_norm
+c.plus6.vtl$dVTL_norm<-NULL
+
+head(c.plus6.vtl)
+
+# Convert coefficients to BK units
+c.plus6.vtl$dVTL.bk = c.plus6.vtl$dVTL_norm.coef/(3.8*log(2))
+
+
+# Add dem to c dataframe
+c.plus6.vtl<-merge.data.frame(c.plus6.vtl, dem, by='subject')
+
+c.plus6.vtl$CI<-0
+c.plus6.vtl[grepl('CI',c.plus6.vtl$subject)==1,]$CI<-"CI"
+c.plus6.vtl[grepl('NH',c.plus6.vtl$subject)==1,]$CI<-"NH"
+
+
+# Add plot age variable for plot
+c.plus6.f0$dVTL_norm.coef<-0
+c.plus6.f0$dVTL.bk<-0
+
+c.plus6.vtl$dF0_norm.coef<-0
+c.plus6.vtl$dF0.bk<-0
+
+c.plus6.plot<-rbind(c.plus6.f0, c.plus6.vtl)
+
+c.plus6.plot$dir_voice<-0
+c.plus6.plot[c.plus6.plot$dVTL.bk==0,]$dir_voice<-"F0"
+c.plus6.plot[c.plus6.plot$dF0.bk==0,]$dir_voice<-"VTL"
+
+c.plus6.plot$bk<-0
+c.plus6.plot[c.plus6.plot$dir_voice=="F0",]$bk<-c.plus6.plot[c.plus6.plot$dir_voice=="F0",]$dF0.bk
+c.plus6.plot[c.plus6.plot$dir_voice=="VTL",]$bk<-c.plus6.plot[c.plus6.plot$dir_voice=="VTL",]$dVTL.bk
+
+
+# Add plot age variable for plot
+c.plus6.plot$plot_age<-c.plus6.plot$age
+c.plus6.plot[c.plus6.plot$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+
+# CRM.coef.plus6 <- glmer(acc ~ (dF0_norm+dVTL_norm|subject),
+#                           data = dat.plus6, family=binomial)
+# 
+# coef(CRM.coef.plus6)
+# 
+# # Add dem to c dataframe
+# # store cue weights for df0_norm and dvtl_norm
+# c.plus6 <- coef(CRM.coef.plus6)$subject
+# c.plus6$subject <- rownames(c.plus6)
+# c.plus6$dF0_norm.coef<-c.plus6$dF0_norm
+# c.plus6$dVTL_norm.coef<-c.plus6$dVTL_norm
+# c.plus6$dF0_norm<-NULL
+# c.plus6$dVTL_norm<-NULL
+# 
+# head(c.plus6)
+# 
+# # Convert coefficients to BK units
+# c.plus6$dF0.bk = c.plus6$dF0_norm.coef/(12*log(2))
+# c.plus6$dVTL.bk = c.plus6$dVTL_norm.coef/(3.8*log(2))
+# 
+# 
+# c.plus6$CI<-0
+# c.plus6[grepl('CI',c.plus6$subject)==1,]$CI<-"CI"
+# c.plus6[grepl('NH',c.plus6$subject)==1,]$CI<-"NH"
+# 
+# # Add dem to c dataframe
+# c.plus6<-merge.data.frame(c.plus6, nh.dem, by='subject')
+# 
+# 
+# # Add plot age variable for plot
+# # Make dataframe to plot in one figure
+# c.plus6.plot<-c.plus6[rep(1:nrow(c.plus6),each=2),]
+# c.plus6.plot$dir_voice<-c("F0","VTL")
+# c.plus6.plot$bk<-0
+# c.plus6.plot[c.plus6.plot$dir_voice=="F0",]$bk<-c.plus6.plot[c.plus6.plot$dir_voice=="F0",]$dF0.bk
+# c.plus6.plot[c.plus6.plot$dir_voice=="VTL",]$bk<-c.plus6.plot[c.plus6.plot$dir_voice=="VTL",]$dVTL.bk
+# 
+# # Add plot age variable for plot
+# c.plus6.plot$plot_age<-c.plus6.plot$age
+# c.plus6.plot[c.plus6.plot$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+# 
+
+
+
+# Make plot
+plus6 <- ggplot(c.plus6.plot, aes(x = plot_age, y = bk, fill =group)) +
+    geom_boxplot(data=c.plus6.plot[c.plus6.plot$CI=="NH",],
+                 aes(x = plot_age, y = bk, fill = group),
+                 alpha=0.1, color="grey",show.legend = FALSE,
+                 outlier.shape = NA) + 
+    geom_point(data=c.plus6.plot[c.plus6.plot$CI=="CI",], 
+               aes(x = age, y = bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+scale_y_continuous(name = "Benefit (Bk/st)") + 
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ dir_voice) +
+  ggtitle("TMR +6 dB") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5),
+        text = element_text(size = 16),
+        axis.text.x=element_text(size = 16, hjust=0.5),
+        axis.text.y=element_text(size = 16, hjust=0.5),
+        axis.title = element_text(face="bold"))
+# Show boxplot F
+plus6
+
+
+
+
+
+# # TMR plus 12 
+# Coefficients for F0
+CRM.coef.plus12.f0 <- glmer(acc ~ (dF0_norm|subject),
+                          data = dat.plus12, family=binomial)
+
+coef(CRM.coef.plus12.f0)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.plus12.f0 <- coef(CRM.coef.plus12.f0)$subject
+c.plus12.f0$subject <- rownames(c.plus12.f0)
+c.plus12.f0$dF0_norm.coef<-c.plus12.f0$dF0_norm
+c.plus12.f0$dF0_norm<-NULL
+
+head(c.plus12.f0)
+
+# Convert coefficients to BK units
+c.plus12.f0$dF0.bk = c.plus12.f0$dF0_norm.coef/(12*log(2))
+
+# Add dem to c dataframe
+c.plus12.f0<-merge.data.frame(c.plus12.f0, dem, by='subject')
+
+c.plus12.f0$CI<-"CI"
+
+
+# Coefficients for VTL
+CRM.coef.plus12.vtl <- glmer(acc ~ (dVTL_norm|subject),
+                          data = dat.plus12, family=binomial)
+
+coef(CRM.coef.plus12.vtl)
+
+# Add dem to c dataframe
+# store cue weights for df0_norm and dvtl_norm
+c.plus12.vtl <- coef(CRM.coef.plus12.vtl)$subject
+c.plus12.vtl$subject <- rownames(c.plus12.vtl)
+c.plus12.vtl$dVTL_norm.coef<-c.plus12.vtl$dVTL_norm
+c.plus12.vtl$dVTL_norm<-NULL
+
+head(c.plus12.vtl)
+
+# Convert coefficients to BK units
+c.plus12.vtl$dVTL.bk = c.plus12.vtl$dVTL_norm.coef/(3.8*log(2))
+
+
+# Add dem to c dataframe
+c.plus12.vtl<-merge.data.frame(c.plus12.vtl, dem, by='subject')
+
+c.plus12.vtl$CI<-"CI"
+
+
+# Add plot age variable for plot
+c.plus12.f0$dVTL_norm.coef<-0
+c.plus12.f0$dVTL.bk<-0
+
+c.plus12.vtl$dF0_norm.coef<-0
+c.plus12.vtl$dF0.bk<-0
+
+c.plus12.plot<-rbind(c.plus12.f0, c.plus12.vtl)
+
+c.plus12.plot$dir_voice<-0
+c.plus12.plot[c.plus12.plot$dVTL.bk==0,]$dir_voice<-"F0"
+c.plus12.plot[c.plus12.plot$dF0.bk==0,]$dir_voice<-"VTL"
+
+c.plus12.plot$bk<-0
+c.plus12.plot[c.plus12.plot$dir_voice=="F0",]$bk<-c.plus12.plot[c.plus12.plot$dir_voice=="F0",]$dF0.bk
+c.plus12.plot[c.plus12.plot$dir_voice=="VTL",]$bk<-c.plus12.plot[c.plus12.plot$dir_voice=="VTL",]$dVTL.bk
+
+
+# Add plot age variable for plot
+c.plus12.plot$plot_age<-c.plus12.plot$age
+
+# CRM.coef.plus12 <- glmer(acc ~ (dF0_norm+dVTL_norm|subject),
+#                           data = dat.plus12, family=binomial)
+# 
+# coef(CRM.coef.plus12)
+# 
+# # Add dem to c dataframe
+# # store cue weights for df0_norm and dvtl_norm
+# c.plus12 <- coef(CRM.coef.plus12)$subject
+# c.plus12$subject <- rownames(c.plus12)
+# c.plus12$dF0_norm.coef<-c.plus12$dF0_norm
+# c.plus12$dVTL_norm.coef<-c.plus12$dVTL_norm
+# c.plus12$dF0_norm<-NULL
+# c.plus12$dVTL_norm<-NULL
+# 
+# head(c.plus12)
+# 
+# # Convert coefficients to BK units
+# c.plus12$dF0.bk = c.plus12$dF0_norm.coef/(12*log(2))
+# c.plus12$dVTL.bk = c.plus12$dVTL_norm.coef/(3.8*log(2))
+# 
+# 
+# c.plus12$CI<-"CI"
+# 
+# # Add dem to c dataframe
+# c.plus12<-merge.data.frame(c.plus12, nh.dem, by='subject')
+# 
+# 
+# # Add plot age variable for plot
+# # Make dataframe to plot in one figure
+# c.plus12.plot<-c.plus12[rep(1:nrow(c.plus12),each=2),]
+# c.plus12.plot$dir_voice<-c("F0","VTL")
+# c.plus12.plot$bk<-0
+# c.plus12.plot[c.plus12.plot$dir_voice=="F0",]$bk<-c.plus12.plot[c.plus12.plot$dir_voice=="F0",]$dF0.bk
+# c.plus12.plot[c.plus12.plot$dir_voice=="VTL",]$bk<-c.plus12.plot[c.plus12.plot$dir_voice=="VTL",]$dVTL.bk
+# 
+
+# Make plot
+plus12 <- ggplot(c.plus12.plot, aes(x = age, y = bk, fill =group)) +
+    geom_point(data=c.plus12.plot, 
+               aes(x = age, y = bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+scale_y_continuous(name = "Benefit (Bk/st)") + 
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+  facet_wrap(~ dir_voice) +
+  ggtitle("TMR +12 dB") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5),
+        text = element_text(size = 16),
+        axis.text.x=element_text(size = 16, hjust=0.5),
+        axis.text.y=element_text(size = 16, hjust=0.5),
+        axis.title = element_text(face="bold"))
+# Show boxplot F
+plus12
+
+
+
+# Different plot with arrays for F0 and for VTL
+# Combine data sets 
+
+c.f0$condition <-"Overall"
+c.vtl$condition <-"Overall"
+
+c.min6.f0$condition <- "TMR -6 dB"
+c.min6.vtl$condition <- "TMR -6 dB"
+
+c.0.f0$condition <- "TMR 0 dB"
+c.0.vtl$condition <- "TMR 0 dB"
+
+c.plus6.f0$condition <- "TMR +6 dB"
+c.plus6.vtl$condition <- "TMR +6 dB"
+
+c.plus12.f0$condition <- "TMR +12 dB"
+c.plus12.vtl$condition <- "TMR +12 dB"
+
+
+c.f0$CI<-0
+c.f0[grepl('CI',c.f0$subject)==1,]$CI<-"CI"
+c.f0[grepl('NH',c.f0$subject)==1,]$CI<-"NH"
+
+c.vtl$CI<-0
+c.vtl[grepl('CI',c.vtl$subject)==1,]$CI<-"CI"
+c.vtl[grepl('NH',c.vtl$subject)==1,]$CI<-"NH"
+
+c.f0$dVTL_norm.coef<-0
+c.f0$dVTL.bk<-0
+
+c.vtl$dF0_norm.coef<-0
+c.vtl$dF0.bk<-0
+
+c.all.f0<-rbind(c.f0, c.min6.f0, c.0.f0, c.plus6.f0, c.plus12.f0)
+
+c.all.vtl<-rbind(c.vtl, c.min6.vtl, c.0.vtl, c.plus6.vtl, c.plus12.vtl)
+
+c.all.f0$dVTL.bk<-c.all.vtl$dVTL.bk
+c.all.f0$dVTL_norm.coef<-c.all.vtl$dVTL_norm.coef
+
+# Add plot age variable for plot
+c.all.f0$plot_age<-c.all.f0$age
+c.all.f0[c.all.f0$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+
+
+c.all.f0$condition<-factor(c.all.f0$condition, levels=c("Overall","TMR -6 dB","TMR 0 dB","TMR +6 dB",
+                                                "TMR +12 dB"))
+
+
+
+F0.tmrs <- ggplot(c.all.f0, aes(x = plot_age, y = dF0.bk, fill=group)) +
+    geom_boxplot(data=c.all.f0[c.all.f0$CI=="NH",],
+                 aes(x = plot_age, y = dF0.bk, fill = group),
+                 alpha=0.1, color="grey",show.legend = FALSE,
+                 outlier.shape = NA) + 
+    geom_point(data=c.all.f0[c.all.f0$CI=="CI",], 
+               aes(x = age, y = dF0.bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  scale_y_continuous(name = "F0 Benefit (Bk/st)")+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ condition, ncol = 5) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 14),
+        axis.title.x = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 14),
+        axis.title.y = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=13),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+
+
+# Show plot
+F0.tmrs
+
+
+
+VTL.tmrs <- ggplot(c.all.f0, aes(x = plot_age, y = dVTL.bk, fill=group)) +
+    geom_boxplot(data=c.all.f0[c.all.f0$CI=="NH",],
+                 aes(x = plot_age, y = dVTL.bk, fill = group),
+                 alpha=0.1, color="grey",show.legend = FALSE,
+                 outlier.shape = NA) + 
+    geom_point(data=c.all.f0[c.all.f0$CI=="CI",], 
+               aes(x = age, y = dVTL.bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  scale_y_continuous(name = "VTL Benefit (Bk/st)")+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ condition, ncol = 5) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black") +
+  theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 14),
+        axis.title.x = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 14),
+        axis.title.y = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=13),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+# Show plot
+VTL.tmrs
+
+
+
+
+fig8 <- ggarrange(F0.tmrs, VTL.tmrs, ncol=1, nrow=2, legend= "bottom", labels = c("A", "B"), common.legend = TRUE)
+
+fig8
+
+
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+ggsave(file="Figure 8 - CRM CI data.png", units = c("cm"),dpi = 600, height = 25, width = 40)
+
+ggsave(file="Figure 8 - CRM CI data.tiff", units = c("cm"),dpi = 600, height = 25, width = 40)
+
+ggsave(file="Figure 8 - CRM CI data.pdf", units = c("cm"),dpi = 600, height = 25, width = 40)
+
+
+
+
+### For NVA meeting without overall and +12 dB
+
+c.nva<-rbind(c.min6, c.0, c.plus6)
+
+# Add plot age variable for plot
+c.nva$plot_age<-c.nva$age
+c.nva[c.nva$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+
+c.nva$condition<-factor(c.nva$condition, levels=
+                        c("TMR -6 dB","TMR 0 dB","TMR +6 dB"))
+
+
+
+F0.tmrs.nva <- ggplot(c.nva, aes(x = plot_age, y = dF0.bk, fill=group)) +
+    geom_boxplot(data=c.nva[c.nva$CI=="NH",],
+                 aes(x = plot_age, y = dF0.bk, fill = group),
+                 alpha=0.1, color="grey",show.legend = FALSE,
+                 outlier.shape = NA) + 
+    geom_point(data=c.nva[c.nva$CI=="CI",], 
+               aes(x = age, y = dF0.bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  scale_y_continuous(name = "F0 Benefit (Bk/st)")+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ condition, ncol = 5) +
+  theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 22),
+        axis.title.x = element_text(size = 22, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 22),
+        axis.title.y = element_text(size = 22, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=22),
+        legend.position = "none")
+
+
+
+# Show plot
+F0.tmrs.nva
+
+
+
+VTL.tmrs.nva <- ggplot(c.nva, aes(x = plot_age, y = dVTL.bk, fill=group)) +
+    geom_boxplot(data=c.nva[c.nva$CI=="NH",],
+                 aes(x = plot_age, y = dVTL.bk, fill = group),
+                 alpha=0.1, color="grey",show.legend = FALSE,
+                 outlier.shape = NA) + 
+    geom_point(data=c.nva[c.nva$CI=="CI",], 
+               aes(x = age, y = dVTL.bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  scale_y_continuous(name = "VTL Benefit (Bk/st)")+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ condition, ncol = 5) +
+  theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 22),
+        axis.title.x = element_text(size = 22, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 22),
+        axis.title.y = element_text(size = 22, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=22),
+        legend.position = "none")
+
+# Show plot
+VTL.tmrs.nva
+
+
+
+
+
+fig8.nva <- ggarrange(F0.tmrs.nva, VTL.tmrs.nva, ncol=1, nrow=2, legend = NULL)
+
+fig8.nva
+
+
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+ggsave(file="NVA Figure 8 - CRM CI data.png", units = c("cm"),dpi = 600, height = 28, width = 40)
+
+ggsave(file="NVA Figure 8 - CRM CI data.pdf", units = c("cm"),dpi = 600, height = 28, width = 50)
+
+
+
+
+# # subset data per tmr
+# # -6 TMR
+# dat.min6<-dat[dat$tmr=="-6",]
+# dat.0<-dat[dat$tmr=="0",]
+# dat.plus6<-dat[dat$tmr=="6",]
+# dat.plus12<-dat[dat$tmr=="12",]
+# 
+# 
+# CRM.coef.min6 <- glmer(acc ~ (dF0_norm+dVTL_norm|subject),
+#                           data = dat.min6, family=binomial)
+# 
+# coef(CRM.coef.min6)
+# 
+# # Add dem to c dataframe
+# # store cue weights for df0_norm and dvtl_norm
+# c.min6 <- coef(CRM.coef.min6)$subject
+# c.min6$subject <- rownames(c.min6)
+# c.min6$dF0_norm.coef<-c.min6$dF0_norm
+# c.min6$dVTL_norm.coef<-c.min6$dVTL_norm
+# c.min6$dF0_norm<-NULL
+# c.min6$dVTL_norm<-NULL
+# 
+# head(c.min6)
+# 
+# # Convert coefficients to BK units
+# c.min6$dF0.bk = c.min6$dF0_norm.coef/(12*log(2))
+# c.min6$dVTL.bk = c.min6$dVTL_norm.coef/(3.8*log(2))
+# 
+# 
+# # Add dem to c dataframe
+# c.min6<-merge.data.frame(c.min6, nh.dem, by='subject')
+
+
+
+```
+
+
+
+# RQ3 - Dunnett's tests: adult-like overall accuracy logit-transformation
+``` {r dunnett overall acc}
+
+dat$acc<-as.numeric(as.character(dat$acc))
+
+means.overall<-aggregate(x=dat$acc, by=list(dat$subject, dat$group, dat$age, dat$CI), 
+                  FUN=sum, na.rm=FALSE)
+
+means.overall$subject<-means.overall$Group.1
+means.overall$group<-means.overall$Group.2
+means.overall$age<-means.overall$Group.3
+means.overall$CI<-means.overall$Group.4
+means.overall$correct<-means.overall$x
+
+means.overall$Group.1<-NULL
+means.overall$Group.2<-NULL
+means.overall$Group.3<-NULL
+means.overall$Group.4<-NULL
+means.overall$x<-NULL
+
+head(means.overall)
+
+
+# Apply logit transformation
+means.overall$prob<-0
+means.overall[means.overall$CI=="NH"| means.overall$subject=="nl_CIK001"| means.overall$subject=="nl_CIK002"|means.overall$subject=="nl_CIK003",]$prob<-
+  means.overall[means.overall$CI=="NH"|means.overall$subject=="nl_CIK001"| means.overall$subject=="nl_CIK002"|means.overall$subject=="nl_CIK003",]$correct/84
+
+means.overall$prob_cor<-0
+means.overall[means.overall$CI=="NH"|means.overall$subject=="nl_CIK001"| means.overall$subject=="nl_CIK002"| means.overall$subject=="nl_CIK003",]$prob_cor<-
+   ifelse(means.overall[means.overall$CI=="NH"|means.overall$subject=="nl_CIK001"| means.overall$subject=="nl_CIK002"| means.overall$subject=="nl_CIK003",]$correct==84, (means.overall[means.overall$CI=="NH"|means.overall$subject=="nl_CIK001"| means.overall$subject=="nl_CIK002"| means.overall$subject=="nl_CIK003",]$correct-0.5)/means.overall[means.overall$CI=="NH"|means.overall$subject=="nl_CIK001"|means.overall$subject=="nl_CIK002"| means.overall$subject=="nl_CIK003",]$correct, 
+          means.overall[means.overall$CI=="NH"|means.overall$subject=="nl_CIK001"| means.overall$subject=="nl_CIK002"|means.overall$subject=="nl_CIK003",]$prob)
+
+means.overall[means.overall$CI=="CI" & means.overall$subject!="nl_CIK001" & means.overall$subject!="nl_CIK002" & means.overall$subject!="nl_CIK003",]$prob<-
+  means.overall[means.overall$CI=="CI" & means.overall$subject!="nl_CIK001" & means.overall$subject!="nl_CIK002" & means.overall$subject!="nl_CIK003",]$correct/112
+
+means.overall[means.overall$CI=="CI" & means.overall$subject!="nl_CIK001" & means.overall$subject!="nl_CIK002" & means.overall$subject!="nl_CIK003",]$prob_cor<-
+  ifelse(means.overall[means.overall$CI=="CI" & means.overall$subject!="nl_CIK001" & means.overall$subject!="nl_CIK002" & means.overall$subject!="nl_CIK003",]$correct==112, (means.overall[means.overall$CI=="CI" & means.overall$subject!="nl_CIK001" & means.overall$subject!="nl_CIK002" & means.overall$subject!="nl_CIK003",]$correct-0.5)/means.overall[means.overall$CI=="CI" & means.overall$subject!="nl_CIK001" & means.overall$subject!="nl_CIK002" & means.overall$subject!="nl_CIK003",]$correct, means.overall[means.overall$CI=="CI" & means.overall$subject!="nl_CIK001" & means.overall$subject!="nl_CIK002" & means.overall$subject!="nl_CIK003",]$prob)
+
+
+means.overall$logit<-Logit(means.overall$prob_cor, min=0, max=1)
+
+
+# Interpolation
+means.voice<-aggregate(x=dat$acc, by=list(dat$subject, dat$group, dat$CI, dat$age, dat$condition, dat$condition_name, dat$tmr, dat$dF0, dat$dVTL),              FUN=sum, na.rm=FALSE)
+
+
+means.voice$subject<-means.voice$Group.1
+means.voice$group<-means.voice$Group.2
+means.voice$CI<-means.voice$Group.3
+means.voice$age<-means.voice$Group.4
+means.voice$condition<-means.voice$Group.5
+means.voice$condition_name<-means.voice$Group.6
+means.voice$tmr<-means.voice$Group.7
+means.voice$dF0<-means.voice$Group.8
+means.voice$dVTL<-means.voice$Group.9
+means.voice$correct<-means.voice$x
+
+means.voice$Group.1<-NULL
+means.voice$Group.2<-NULL
+means.voice$Group.3<-NULL
+means.voice$Group.4<-NULL
+means.voice$Group.5<-NULL
+means.voice$Group.6<-NULL
+means.voice$Group.7<-NULL
+means.voice$Group.8<-NULL
+means.voice$Group.9<-NULL
+means.voice$x<-NULL
+
+head(means.voice)
+
+
+# Apply logit transformation
+means.voice$prob<-means.voice$correct/7
+means.voice$prob_cor<-ifelse(means.voice$correct==7, (means.voice$correct-0.5)/7, means.voice$prob)
+means.voice$prob_cor<-ifelse(means.voice$correct==0,(means.voice$correct+0.5)/7, means.voice$prob_cor)
+means.voice$logit<-Logit(means.voice$prob_cor, min=0, max=1)
+
+
+# mean prob cor of NH children in the -6 TMR no voice difference condition
+mean(means.voice[means.voice$CI=="NH" & means.voice$group!="adults" & means.voice$tmr==-6 & means.voice$condition==1,]$prob_cor)
+#  0.412
+
+means.voice$dF0<-as.factor(as.character(means.voice$dF0))
+means.voice$dVTL<-as.factor(as.character(means.voice$dVTL))
+
+means.voice$subject<-as.factor(as.character(means.voice$subject))
+
+#Calculate median acc of NH children in no voice difference condition
+median(means.voice[means.voice$CI=="NH" & means.voice$group!="adults" & means.voice$tmr==-6 & means.voice$condition==1,]$logit)
+
+
+# Interpolate function
+dat_ref = NULL
+
+for(s in levels(means.voice$subject)) {
+    ds = subset(means.voice, (subject==s) & (dF0==0) & (dVTL==0))
+ tmr_ref = approx(x=ds$logit, y=ds$tmr, xout=Logit(0.572, min=0, max = 1),  rule =2, ties = "ordered")$y
+    tmr_ref<-ifelse(is.na(tmr_ref), -6, tmr_ref)
+    
+    dat_subject = NULL
+
+    for(f0 in levels(means.voice$dF0)) {
+        for(vtl in levels(means.voice$dVTL)) {
+            dsfv = subset(means.voice, (subject==s) & (dF0==f0) & (dVTL==vtl))
+            score_int = approx(x=dsfv$tmr, y=dsfv$logit, xout=tmr_ref)
+            score_int = score_int$y[1]
+            dat_subject_row = data.frame(subject=s, dF0=f0, dVTL=vtl, tmr=tmr_ref, score_logit=score_int)
+            if(is.null(dat_subject)) {
+                dat_subject = dat_subject_row
+            } else {
+                dat_subject = rbind(dat_subject, dat_subject_row)
+            }
+        }
+    }
+
+    if(is.null(dat_ref)) {
+        dat_ref = dat_subject
+    } else {
+        dat_ref = rbind(dat_ref, dat_subject)
+    }
+}
+
+# Check outliers above 57.% : 2 CI children and 10 NH children
+unique(dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0 & dat_ref$score_logit>=0.291,]$subject)
+
+# Check outliers below 57%
+unique(dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0 & dat_ref$score_logit<=0.291,]$subject)
+
+
+
+# Add normalized variable for F0 and VTL
+dat_ref$dF0<-as.numeric(as.character(dat_ref$dF0))
+dat_ref$dVTL<-as.numeric(as.character(dat_ref$dVTL))
+dat_ref$dF0_norm<-((dat_ref$dF0*-1)/12)-0.5
+dat_ref$dVTL_norm<-(dat_ref$dVTL/3.8)-0.5
+
+# Add demographic variables
+dat_ref<-merge.data.frame(dat_ref,nh.dem, by='subject')
+
+dat_ref$CI<-0
+dat_ref[grepl('CI',dat_ref$subject)==1,]$CI<-"CI"
+dat_ref[grepl('NH',dat_ref$subject)==1,]$CI<-"NH"
+
+
+# Add variable for masker voice condition
+dat_ref$condition_name<-0
+dat_ref$condition_name<-ifelse(dat_ref$dF0==0 & dat_ref$dVTL==0.0, "F0: 0 st; VTL: 0 st", dat_ref$condition_name)
+dat_ref$condition_name<-ifelse(dat_ref$dF0==-12 & dat_ref$dVTL==0.0, "F0: -12 st; VTL: 0 st", dat_ref$condition_name)
+dat_ref$condition_name<-ifelse(dat_ref$dF0==0 & dat_ref$dVTL==3.8, "F0: 0 st; VTL: 3.8 st", dat_ref$condition_name)
+dat_ref$condition_name<-ifelse(dat_ref$dF0==-12 & dat_ref$dVTL==3.8, "F0: -12 st; VTL: 3.8 st", dat_ref$condition_name)
+
+dat_ref$condition_name <- ordered(dat_ref$condition_name, levels = c("F0: 0 st; VTL: 0 st", "F0: -12 st; VTL: 0 st","F0: 0 st; VTL: 3.8 st", "F0: -12 st; VTL: 3.8 st"))
+
+
+# Add plot age variable for plot
+dat_ref$plot_age<-dat_ref$age
+dat_ref[dat_ref$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+# Clean up data
+dat_ref$ageimp<-NULL
+
+# Add accuracy scores using inverse logit function
+dat_ref$perc<-inv.logit(dat_ref$score_logit, min=0, max=1)*100
+
+
+# Add variable for slope scores
+dat_ref$slope<-0
+dat_ref[dat_ref$dF0==-12 & dat_ref$dVTL==0,]$slope <- dat_ref[dat_ref$dF0==-12 & dat_ref$dVTL==0,]$score_logit - dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0,]$score_logit
+
+dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==3.8,]$slope <- dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==3.8,]$score_logit - dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0,]$score_logit
+
+dat_ref[dat_ref$dF0==-12 & dat_ref$dVTL==3.8,]$slope <- dat_ref[dat_ref$dF0==-12 & dat_ref$dVTL==3.8,]$score_logit - dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0,]$score_logit
+
+
+# No adult data
+dat_ref<-dat_ref[dat_ref$group!="adults",]
+
+# Plot interpolated logit scores 
+a1 <- ggplot(dat_ref, aes(x = plot_age, y = score_logit, fill=group)) +
+  geom_boxplot(data=dat_ref[dat_ref$CI=="NH",],alpha=0.7,show.legend = TRUE, outlier.shape = NA) +
+  geom_point(data=dat_ref[dat_ref$CI=="CI",],aes(x = plot_age, y = score_logit, color = group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=0.6,
+         size=2,
+         show.legend=FALSE) +
+    scale_y_continuous(name = "Interpolated logit scores")+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16),
+                     labels = c("2","4","6","8","10","12","14","16"),
+                     limits = c(1.9,17.5)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+  facet_wrap(~ condition_name) +
+  ggtitle("Interpolated logit scores at 1.66") +
+    theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 14),
+        axis.title.x = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 14),
+        axis.title.y = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=13),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+
+# Show plot
+a1
+
+# Plot interpolated accuracy scores
+a2 <- ggplot(dat_ref, aes(x = plot_age, y = perc, fill=group)) +
+  geom_boxplot(data=dat_ref[dat_ref$CI=="NH",],
+               alpha=0.1, color="grey",show.legend = FALSE,
+      outlier.shape = NA) +
+  geom_point(data=dat_ref[dat_ref$CI=="CI",], aes(x = age, 
+                                      y = perc, color = group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  scale_y_continuous(name = "Accuracy (%)", limits=c(-0.1, 100.1), breaks = c(0,25,50,75,100))+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16),
+                     labels = c("2","4","6","8","10","12","14","16"),
+                     limits = c(1.9,17.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+  facet_wrap(~ condition_name, ncol = 4) +
+  ggtitle("Interpolated accuracy scores at 84%") +
+    theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 14),
+        axis.title.x = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 14),
+        axis.title.y = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=13),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+
+# Show plot
+a2
+
+
+# Plot interpolated slope sizes
+a3 <- ggplot(dat_ref, aes(x = plot_age, y = slope, fill=group)) +
+  geom_boxplot(data=dat_ref[dat_ref$CI=="NH",],
+               alpha=0.1, color="grey",show.legend = FALSE,
+      outlier.shape = NA) + 
+  geom_point(data=dat_ref[dat_ref$CI=="CI",],
+             aes(x = age, y = slope, color = group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+    scale_y_continuous(name = "Interpolated slope sizes")+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16),
+                     labels = c("2","4","6","8","10","12","14","16"),
+                     limits = c(1.9,17.5)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+  facet_wrap(~ condition_name) +
+  ggtitle("Interpolated slope sizes at 1.66") +
+    theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 14),
+        axis.title.x = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 14),
+        axis.title.y = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=13),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+
+# Show plot
+a3
+
+
+dat_ref.tmr<-aggregate(x=dat_ref$tmr, by=list(dat_ref$subject),FUN=mean, na.rm=FALSE)
+
+dat_ref.tmr$subject<-dat_ref.tmr$Group.1
+dat_ref.tmr$tmr<-dat_ref.tmr$x
+dat_ref.tmr$Group.1<-NULL
+dat_ref.tmr$x<-NULL
+
+dat_ref.tmr<-merge.data.frame(dat_ref.tmr,nh.dem)
+dat_ref.tmr$plot_age<-dat_ref.tmr$age
+#adults_num <- length(unique(dat_ref.tmr$subject[dat_ref.tmr$group=="adults"]))
+#dat_ref.tmr[dat_ref.tmr$group=="adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+
+dat_ref.tmr$CI<-0
+dat_ref.tmr[grepl('CI',dat_ref.tmr$subject)==1,]$CI<-"CI"
+dat_ref.tmr[grepl('NH',dat_ref.tmr$subject)==1,]$CI<-"NH"
+
+
+# Plot interpolated logit scores 
+a8 <- ggplot(dat_ref.tmr, aes(x = plot_age, y = tmr, fill=group)) +
+#  geom_boxplot(alpha=0.7,show.legend = TRUE, outlier.shape = NA) + 
+  geom_point(data=dat_ref.tmr[dat_ref.tmr$CI=="CI",], 
+             aes(x = plot_age, y = tmr, color = group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  
+    geom_point(data=dat_ref.tmr[dat_ref.tmr$CI=="NH",], 
+             aes(x = plot_age, y = tmr, color = group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=0.1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+    scale_y_continuous(name = "Interpolated TMRs", breaks=c(-6,-3,0,3,6), labels = c("-6","-3","0","+3", "+6"), limits=c(-6.1, 6.1))+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16),
+                     labels = c("2","4","6","8","10","12","14","16"),
+                     limits = c(1.9,17.5)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+  theme_bw() + 
+    theme(plot.title = element_blank(),
+        axis.text.x=element_text(size = 14),
+        axis.title.x = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.text.y=element_text(size = 14),
+        axis.title.y = element_text(size = 14, margin = margin(t = 5,b = 5)),
+        axis.title = element_text(face="bold"),
+        strip.text.x = element_text(size=13),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+# Show plot
+a8
+
+
+
+ggarrange(a2, a8, nrow = 2, ncol = 1, common.legend = TRUE, legend = "bottom", heights=c(0.9,0.5), labels = "AUTO")
+
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+
+ggsave(file="Figure 9 - CRM interpolated.tiff", units = c("cm"),dpi = 600, height = 25, width = 28)
+
+ggsave(file="Figure 9 - CRM interpolated.png", units = c("cm"),dpi = 600, height = 25, width = 28)
+
+
+
+# # Collect a list of participants with above 84% interpolated scores in 0 st condition
+# out <- droplevels(dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0 & dat_ref$score_logit>1.8,]$subject)
+# 
+# list<-levels(out)
+# 
+# # Collect a list of participants with below 84% interpolated scores in 0 st condition
+# out2 <- droplevels(dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0 & dat_ref$score_logit<1.65,]$subject)
+# 
+# list<-append(list, levels(out2))
+# 
+# # Subset data without outlying participants
+# dat_ref2 <- subset(dat_ref, !(dat_ref$subject %in% list))
+# dat_ref2$subject<-droplevels(dat_ref2$subject)
+# unique(dat_ref2$subject)
+# # 
+# # Plot interpolated logit scores without outliers
+# a4 <- ggplot(dat_ref2, aes(x = plot_age, y = score_logit, fill=group)) +
+#   geom_boxplot(alpha=0.7,show.legend = TRUE, outlier.shape = NA) +
+#   geom_point(aes(x = plot_age, y = score_logit, color = group),
+#          position=position_jitter(width=0.1,height=0),
+#          alpha=0.6,
+#          size=2,
+#          show.legend=FALSE) +
+#     scale_y_continuous(name = "Interpolated logit scores", limits=c(-1,2.8))+
+#   scale_x_continuous(name = "Age",limits=c(3.99,16.1),breaks = c(4,6,8,10,12,15), labels = c("4","6","8","10","12","Adults")) +
+#   scale_fill_manual(name = "Groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#05668D")) +
+#     scale_color_manual(name = "Groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#033d54")) +
+#   facet_wrap(~ condition_name) +
+#   ggtitle("Interpolated logit scores at 1.66") +
+#   theme_bw() +
+#   theme(plot.title = element_text(size = 16, face = "bold",hjust=0.5,
+#                                   margin = margin(t = 10,b = 20)),
+#         text = element_text(size = 14),
+#         axis.title = element_text(face="bold"),
+#       legend.title = element_text(size=14),
+#         legend.text = element_text(size=14))
+# 
+# 
+# # Show plot
+# a4
+# 
+# # Plot interpolated accuracy scores without outliers
+# a5 <- ggplot(dat_ref2, aes(x = plot_age, y = perc, fill=group)) +
+#   geom_boxplot(alpha=0.7,show.legend = TRUE, outlier.shape = NA) + 
+#   geom_point(aes(x = plot_age, y = perc, color = group),
+#          position=position_jitter(width=0.1,height=0),
+#          alpha=0.6,
+#          size=2,
+#          show.legend=FALSE) +
+#     scale_y_continuous(name = "Accuracy (%)", limits=c(-0.1, 100), breaks = c(0,25,50,75,100))+
+#   scale_x_continuous(name = "Age",limits=c(3.99,16.1),breaks = c(4,6,8,10,12,15), labels = c("4","6","8","10","12","Adults")) +
+#   scale_fill_manual(name = "Groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#05668D")) +
+#     scale_color_manual(name = "Groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#033d54")) +
+#   facet_wrap(~ condition_name) +
+#   ggtitle("Interpolated accuracy scores at 84%") +
+#   theme_bw() +
+#   theme(plot.title = element_text(size = 16, face = "bold",hjust=0.5, 
+#                                   margin = margin(t = 10,b = 20)),
+#         text = element_text(size = 14),
+#         axis.title = element_text(face="bold"),
+#       legend.title = element_text(size=14), 
+#         legend.text = element_text(size=14))
+# 
+# 
+# # Show plot
+# a5
+# 
+# 
+# # Plot interpolated slope sizes
+# a6 <- ggplot(dat_ref2, aes(x = plot_age, y = slope, fill=group)) +
+#   geom_boxplot(alpha=0.7,show.legend = TRUE, outlier.shape = NA) + 
+#   geom_point(aes(x = plot_age, y = slope, color = group),
+#          position=position_jitter(width=0.1,height=0),
+#          alpha=0.6,
+#          size=2,
+#          show.legend=FALSE) +
+#     scale_y_continuous(name = "Interpolated slope sizes")+
+#   scale_x_continuous(name = "Age",limits=c(3.99,16.1),breaks = c(4,6,8,10,12,15), labels = c("4","6","8","10","12","Adults")) +
+#   scale_fill_manual(name = "Groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#05668D")) +
+#     scale_color_manual(name = "Groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#033d54")) +
+#   facet_wrap(~ condition_name) +
+#   ggtitle("Interpolated slope sizes at 1.66") +
+#   theme_bw() +
+#   theme(plot.title = element_text(size = 16, face = "bold",hjust=0.5, 
+#                                   margin = margin(t = 10,b = 20)),
+#         text = element_text(size = 14),
+#         axis.title = element_text(face="bold"),
+#       legend.title = element_text(size=14), 
+#         legend.text = element_text(size=14))
+# 
+# 
+# # Show plot
+# a6
+# 
+# 
+# dat_ref2.tmr<-aggregate(x=dat_ref2$tmr, by=list(dat_ref2$subject),FUN=mean, na.rm=FALSE)
+# 
+# dat_ref2.tmr$subject<-dat_ref2.tmr$Group.1
+# dat_ref2.tmr$tmr<-dat_ref2.tmr$x
+# dat_ref2.tmr$Group.1<-NULL
+# dat_ref2.tmr$x<-NULL
+# 
+# dat_ref2.tmr<-merge.data.frame(dat_ref2.tmr,dem)
+# dat_ref2.tmr$plot_age<-dat_ref2.tmr$age
+# adults_num <- length(unique(dat_ref2.tmr$subject[dat_ref2.tmr$group=="Adults"]))
+# dat_ref2.tmr[dat_ref2.tmr$group=="Adults",]$plot_age <- c(14.1, 14.5, 14.6, 14.7, 14.8, 14.9, 15.1, 15.2, 15.3, 15.4, 15.5, 15.9)
+# 
+# # # Plot interpolated logit scores 
+# a7 <- ggplot(dat_ref2.tmr, aes(x = plot_age, y = tmr, fill=group)) +
+# #  geom_boxplot(alpha=0.7,show.legend = TRUE, outlier.shape = NA) + 
+#   geom_point(aes(x = plot_age, y = tmr, color = group),
+#          position=position_jitter(width=0.1,height=0),
+#          alpha=0.6,
+#          size=2,
+#          show.legend=FALSE) +
+#     scale_y_continuous(name = "Interpolated TMRs", breaks=c(-6,-3,0,3,6), labels = c("-6","-3","0","+3", "+6"), limits=c(-6.1, 6.1))+
+#   scale_x_continuous(name = "Age",limits=c(3.99,16.1),breaks = c(4,6,8,10,12,15), labels = c("4","6","8","10","12","Adults")) +
+#   scale_fill_manual(name = "Groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#05668D")) +
+#     scale_color_manual(name = "Groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#033d54")) +
+#   theme_bw() +
+#   theme(plot.title = element_blank(),
+#         text = element_text(size = 14),
+#         axis.title = element_text(face="bold"),
+#       legend.title = element_text(size=14), 
+#         legend.text = element_text(size=14))
+# 
+# 
+# # Show plot
+# a7
+# 
+# # 
+# ggarrange(a4, a7, nrow = 2, ncol = 1, common.legend = TRUE, legend = "bottom", widths = c(1, 0.4), heights=c(1,0.4), labels = "AUTO")
+# 
+# 
+# ggsave(file="CRM_fig4_alt.jpg", units = c("cm"),dpi = 300, height = 25, width = 15)
+# 
+
+
+# Perform Dunnett's test
+# dat_ref$group<-as.factor(as.character(dat_ref$group))
+# dat_ref$group<-relevel(dat_ref$group, ref="adults")
+
+dat_ref$CI<-as.factor(as.character(dat_ref$CI))
+dat_ref$CI<-relevel(dat_ref$CI, ref="NH")
+
+
+# Check outliers above 57.% : 2 CI children and 10 NH children
+subjects<-unique(dat_ref[dat_ref$dF0==0 & dat_ref$dVTL==0 & dat_ref$score_logit<=0.291,]$subject)
+
+
+dat_ref.in<-0
+dat_ref.out<-0
+
+all.subjects<-unique(dat_ref$subject)
+
+dat_ref$inorout<-0
+dat_ref$inorout<-ifelse(dat_ref$subject %in% subjects, "IN","OUT")
+
+dat_ref.in<-dat_ref[dat_ref$inorout=="IN",]
+
+
+DunnettTest(score_logit~CI,data=dat_ref)
+
+# 
+# dat_ref2$group<-relevel(dat_ref2$group, ref="Adults")
+# 
+# DunnettTest(score_logit~group,data=dat_ref2)
+# DunnettTest(score_logit~condition_name,data=dat_ref2)
+# DunnettTest(slope~group,data=dat_ref2)
+
+
+
+# Perform lmer analysis
+m1<-lmer(score_logit ~ CI*age*dF0_norm*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+# model with four-way interaction
+m2<-lmer(score_logit ~ CI*age*dF0_norm + CI*age*dVTL_norm + CI*dF0_norm*dVTL_norm + age*dF0_norm*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M2 has significantly better AIC and BIC
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)  
+# m2   17 584 645   -275      550                      
+# m1   18 579 644   -272      543  6.37  1      0.012 *
+anova(m1, m2)
+
+#model without three-way interaction CI*age*dVTL
+m3<-lmer(score_logit ~ CI*age*dF0_norm + CI*dF0_norm*dVTL_norm + age*dF0_norm*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+
+
+# M3 has better AIC and BIC, non-significant
+#   npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m3   16 582 639   -275      550                    
+# m2   17 584 645   -275      550     0  1          1
+anova(m2, m3)
+
+
+#model without three-way interaction CI*age*dF0
+m4<-lmer(score_logit ~ CI*age + CI*dF0_norm*dVTL_norm + age*dF0_norm*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M4 has better AIC and BIC, non-significant
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m4   15 580 634   -275      550                    
+# m3   16 582 639   -275      550   0.2  1       0.65
+anova(m3, m4)
+
+
+#model without three-way interaction CI*age*dF0
+m5<-lmer(score_logit ~ CI*age + CI*dF0_norm*dVTL_norm + age*dF0_norm + age*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M4 has same AIC and worse BIC, non-significant
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m5   14 580 631   -276      552                    
+# m4   15 580 634   -275      550  2.29  1       0.13
+anova(m4, m5)
+
+
+#model without three-way interaction CI*dF0*dVTL
+m6<-lmer(score_logit ~ CI*age + CI*dF0_norm + CI*dVTL_norm + dF0_norm*dVTL_norm + age*dF0_norm + age*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M5 has same AIC and worse BIC, non-significant
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m6   13 580 627   -277      554                    
+# m5   14 580 631   -276      552  1.49  1       0.22
+anova(m5, m6)
+
+
+
+#model without two-way interaction CI*age
+m7<-lmer(score_logit ~ CI*dF0_norm + CI*dVTL_norm + dF0_norm*dVTL_norm + age*dF0_norm + age*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M6 has worse AIC and BIC, non-significant
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m7   12 578 621   -277      554                    
+# m6   13 580 627   -277      554  0.01  1       0.91
+anova(m6, m7)
+
+
+
+#model without two-way interaction CI*dVTL
+m8<-lmer(score_logit ~ CI*dF0_norm + dF0_norm*dVTL_norm + age*dF0_norm + age*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M7 has worse AIC and BIC, non-significant
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m8   11 576 615   -277      554                    
+# m7   12 578 621   -277      554  0.11  1       0.74
+anova(m7, m8)
+
+
+#model without two-way interaction CI*dVTL
+m8<-lmer(score_logit ~ CI*dF0_norm + dF0_norm*dVTL_norm + age*dF0_norm + age*dVTL_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M7 has worse AIC and BIC, non-significant
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m8   11 576 615   -277      554                    
+# m7   12 578 621   -277      554  0.11  1       0.74
+anova(m7, m8)
+
+
+#model without two-way interaction CI*dVTL
+m9<-lmer(score_logit ~ CI*dF0_norm + dF0_norm*dVTL_norm + age*dF0_norm + (1|subject), data=dat_ref, REML = FALSE)
+
+#M8 has worse AIC and BIC, non-significant
+#    npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m9   10 574 610   -277      554                    
+# m8   11 576 615   -277      554  0.13  1       0.72
+anova(m8, m9)
+
+
+#model without two-way interaction CI*dF0
+m10<-lmer(score_logit ~ dF0_norm*dVTL_norm + age*dF0_norm + CI + (1|subject), data=dat_ref, REML = FALSE)
+
+#M9 has worse AIC and BIC, non-significant
+#     npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m10    9 572 605   -277      554                    
+# m9    10 574 610   -277      554  0.33  1       0.57
+anova(m9, m10)
+
+
+#model without two-way interaction age*dF0
+m11<-lmer(score_logit ~ dF0_norm*dVTL_norm + age + CI + (1|subject), data=dat_ref, REML = FALSE)
+
+#M10 has worse AIC and BIC, non-significant
+#     npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)
+# m11    8 572 600   -278      556                    
+# m10    9 572 605   -277      554  1.37  1       0.24
+anova(m10, m11)
+
+
+#model without two-way interaction dF0*dVTL
+m12<-lmer(score_logit ~ dF0_norm + dVTL_norm + age + CI + (1|subject), data=dat_ref, REML = FALSE)
+
+#M11 has better AIC and BIC, significant!
+#     npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)    
+# m12    7 590 615   -288      576                        
+# m11    8 572 600   -278      556  20.2  1    6.9e-06 ***
+anova(m11, m12)
+
+
+#model without age
+m13<-lmer(score_logit ~ dF0_norm*dVTL_norm + CI + (1|subject), data=dat_ref, REML = FALSE)
+
+#M11 has better AIC and BIC, significant!
+#     npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)    
+# m13    7 592 618   -289      578                        
+# m11    8 572 600   -278      556  22.8  1    1.8e-06 ***
+anova(m11, m13)
+
+
+#model without CI
+m14<-lmer(score_logit ~ dF0_norm*dVTL_norm + age + (1|subject), data=dat_ref, REML = FALSE)
+
+#M11 has better AIC and BIC, significant!
+#     npar AIC BIC logLik deviance Chisq Df Pr(>Chisq)  
+# m14    7 575 600   -280      561                      
+# m11    8 572 600   -278      556  5.43  1       0.02 *
+anova(m11, m14)
+
+
+
+# #M11 is the best most parsimonious model
+summary(m11)
+
+```
+
+
+
+
+# RQ5 - Check correlation JNDs and weighting F0 and VTL
+``` {r glmer correlation}
+
+
+# Set PICKA WD for CI data
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/PICKA Experiments/')
+
+# Read CSV file Results Fishy
+fishy.dat<-read.csv('./Experiments/fishy/results/jvo_db_results.csv',header=TRUE)
+
+# no UK partiCIpants in datastruct
+fishy.dat <- fishy.dat[grepl('gb',fishy.dat$subject)!=1,]
+
+
+# Exclude some partiCIpants
+# hearing thresholds too high for normal-hearing criteria
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHA001",]
+# test run
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK100",]
+# incorrect comprehension of the task, only female responses
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK008",]
+# dyslexia
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK022",]
+# only completed Fishy and unreliable responses, no attention
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK043",]
+# autism 
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK050",]
+
+
+# Rename fishy.dat$dir_voice 
+fishy.dat$dir_voice <- ifelse(fishy.dat$dir_voice=="male-gpr","F0","VTL")
+fishy.dat$dir_voice<-as.factor(fishy.dat$dir_voice)
+
+# Log-transformed thresholds
+fishy.dat$thrs.a.log<-log(fishy.dat$threshold)
+fishy.dat$thrs.g.log<-log(fishy.dat$threshold_geom)
+
+
+c.cor<-c.all.f0
+
+# Only child data
+c.cor.kids<-c.cor[c.cor$group!="adults",]
+#c.cor.kids$group<-droplevels(c.cor.kids$group)
+
+# Create data subsets with only F0 or only VTL data
+c.cor.kids.f0<-c.cor.kids[c.cor.kids$dir_voice=="F0",]
+c.cor.kids.vtl<-c.cor.kids[c.cor.kids$dir_voice=="VTL",]
+
+
+```
+
+
+``` {r correlation residuals}
+
+### For geometric mean
+
+# For geometric mean
+# look at correlation non-residuals
+cor.test(x=c.cor.kids.f0$thrs.g.log, 
+         y=c.cor.kids.f0$dF0.bk, method="pearson")
+cor.test(x=c.cor.kids.vtl$thrs.g.log, 
+         y=c.cor.kids.vtl$dVTL.bk, method="pearson")
+
+# subset of CI children
+c.cor.kids.f0.ci<-c.cor.kids.f0[c.cor.kids.f0$CI=="CI",]
+c.cor.kids.vtl.ci<-c.cor.kids.vtl[c.cor.kids.vtl$CI=="CI",]
+
+cor.test(x=c.cor.kids.f0.ci$thrs.g.log, 
+         y=c.cor.kids.f0.ci$dF0.bk, method="pearson")
+cor.test(x=c.cor.kids.vtl.ci$thrs.g.log, 
+         y=c.cor.kids.vtl.ci$dVTL.bk, method="pearson")
+
+
+# LM models with geometric mean
+# lm model for F0 JNDs 
+f0_m1_geom <- lm(thrs.g.log ~ age, data=c.cor.kids.f0.ci)
+
+# lm model for VTL JNDs
+vtl_m1_geom <- lm(thrs.g.log ~ age, data=c.cor.kids.vtl.ci)
+
+
+# Assign residuals of F0 and VTL models to variables
+r.f0.jnd<-residuals(f0_m1_geom)
+r.vtl.jnd<-residuals(vtl_m1_geom)
+
+
+# Merge residuals variables with data frames for F0 and VTL JNDs
+c.cor.kids.f0.ci<-merge.data.frame(r.f0.jnd,c.cor.kids.f0.ci, by="row.names",all.x=TRUE)
+c.cor.kids.f0.ci$r.f0.jnd <- c.cor.kids.f0.ci$x
+
+c.cor.kids.vtl.ci<-merge.data.frame(r.vtl.jnd,c.cor.kids.vtl.ci, by="row.names",all.x=TRUE)
+c.cor.kids.vtl.ci$r.vtl.jnd <- c.cor.kids.vtl.ci$x
+
+# Set x to 0 for next merge of data frames
+c.cor.kids.f0.ci$x<-NULL
+c.cor.kids.vtl.ci$x<-NULL
+
+# lm model for F0 cue weights
+f0_m2 <- lm(dF0.bk ~ age, data=c.cor.kids.f0.ci)
+anova(f0_m2)
+# lm model for VTL cue weights
+vtl_m2 <- lm(dVTL.bk ~ age, data=c.cor.kids.vtl.ci)
+anova(vtl_m2)
+
+# Assign residual values of models to variables
+r.f0.crm<-residuals(f0_m2)
+r.vtl.crm<-residuals(vtl_m2)
+
+# Merge residuals variables with data frames for F0 and VTL cue weights
+c.cor.kids.f0.ci$r.f0.crm<-r.f0.crm
+c.cor.kids.vtl.ci$r.vtl.crm <- r.vtl.crm
+
+
+# Set x to 0 for next merge of data frames
+c.cor.kids.f0.ci$x<-NULL
+c.cor.kids.vtl.ci$x<-NULL
+
+
+options(digits=7)
+
+# Look at the correlation between residuals for F0 JNDs and residuals (fishy) for F0 coeffients (crm)
+cor.test(c.cor.kids.f0.ci$r.f0.jnd,c.cor.kids.f0.ci$r.f0.crm)
+
+# Look at the correlation between residuals for VTL JNDs and residuals (fishy) for VTL coeffients (crm)
+cor.test(c.cor.kids.vtl.ci$r.vtl.jnd,c.cor.kids.vtl.ci$r.vtl.crm)
+
+```
+
+
+# Plot correlations
+``` {r plots}
+
+
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+c.cor.kids.f0.ci$r.vtl.jnd<-0
+c.cor.kids.f0.ci$r.vtl.crm<-0
+c.cor.kids.vtl.ci$r.f0.jnd<-0
+c.cor.kids.vtl.ci$r.f0.crm<-0
+
+c.cor.kids.vtl.ci$Row.names<-NULL
+c.cor.kids.f0.ci$Row.names<-NULL
+
+c.g<-rbind(c.cor.kids.f0.ci, c.cor.kids.vtl.ci)
+
+c.g$r.jnd<-0
+c.g[c.g$dir_voice=="F0",]$r.jnd<-
+  c.g[c.g$dir_voice=="F0",]$r.f0.jnd
+c.g[c.g$dir_voice=="VTL",]$r.jnd<-
+  c.g[c.g$dir_voice=="VTL",]$r.vtl.jnd
+
+c.g$r.crm<-0
+c.g[c.g$dir_voice=="F0",]$r.crm<-
+  c.g[c.g$dir_voice=="F0",]$r.f0.crm
+c.g[c.g$dir_voice=="VTL",]$r.crm<-
+  c.g[c.g$dir_voice=="VTL",]$r.vtl.crm
+
+
+
+
+# Plot E: correlation coefficients
+# add regression line and confidence interval
+e <- ggplot(c.g, aes(x = r.jnd, y = r.crm, color = group,
+                     fill=group, group = 1, legend=TRUE)) +
+  geom_point(size = 3,
+         alpha=1,
+         shape=21,
+         color="black",
+         show.legend=NA) +
+  geom_smooth(aes(x = r.jnd, y = r.crm),method="lm", se=TRUE, fullrange=T,size=1) +
+  scale_x_continuous(name = "Residuals JNDs") +
+  scale_y_continuous(name = "Residuals Benefit") +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+    scale_color_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+  ggtitle("Correlation JNDs and Benefit") +
+  facet_wrap(~dir_voice) + 
+  theme_bw() +
+  # theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5,
+  #                                 margin = margin(t = 10,b = 20)),
+  #       text = element_text(size = 16),
+  #       axis.title = element_text(face="bold"),
+  #       axis.text.x=element_text(size = 16, margin = margin(t = 10,b = 10)),
+  #       axis.text.y=element_text(size = 16, margin = margin(l = 10,r = 10)))
+    theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5),
+          legend.position = "bottom",
+        text = element_text(size = 16),
+        axis.text.x=element_text(size = 16, hjust=0.5),
+        axis.text.y=element_text(size = 16, hjust=0.5),
+        axis.title = element_text(face="bold"))
+
+# Show plot E
+e
+
+
+
+e2 <-e +
+  theme(plot.title = element_blank(),
+        legend.text = element_text(size=12),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 12, margin = margin(t = 1,b = 1)),
+        axis.text.y=element_text(size = 12, margin = margin(l = 1,r = 1)))
+
+
+ggsave(file="Figure 10 - Correlation Fishy x CRM.png", units = c("cm"),dpi = 600)
+
+
+
+```
+
+
+
+
+``` {r cor overall acc and JNDs}
+
+means.ci<-aggregate(x=CI.dat$acc, by=list(CI.dat$subject, CI.dat$group, CI.dat$age), 
+                  FUN=sum, na.rm=FALSE)
+
+means.ci$subject<-means.ci$Group.1
+means.ci$group<-means.ci$Group.2
+means.ci$age<-means.ci$Group.3
+means.ci$correct<-means.ci$x
+
+means.ci$Group.1<-NULL
+means.ci$Group.2<-NULL
+means.ci$Group.3<-NULL
+means.ci$x<-NULL
+
+#means.ci$subject<-droplevels(means.ci$subject)
+#means.ci$group<-droplevels(means.ci$group)
+
+# Add accuracy scores to c.f0
+c.f02<-merge.data.frame(c.cor.kids.f0.ci,means.ci, 
+                        by="subject", all.x = TRUE)
+c.f02$Row.names<-NULL
+c.f02$Row.names.y<-NULL
+
+c.f02$age<-c.f02$age.x
+c.f02$age.x<-NULL
+c.f02$age.y<-NULL
+
+c.f02$group<-c.f02$group.x
+c.f02$group.x<-NULL
+c.f02$group.y<-NULL
+
+c.f02$sd<-c.f02$sd.x
+c.f02$sd.x<-NULL
+c.f02$sd.y<-NULL
+
+
+# Add accuracy scores to c.vtl
+c.vtl2<-merge.data.frame(c.cor.kids.vtl.ci,means.ci, 
+                         by="subject", all.x = TRUE)
+c.vtl2$Row.names<-NULL
+c.vtl2$Row.names.y<-NULL
+
+c.vtl2$age<-c.vtl2$age.x
+c.vtl2$age.x<-NULL
+c.vtl2$age.y<-NULL
+
+c.vtl2$group<-c.vtl2$group.x
+c.vtl2$group.x<-NULL
+c.vtl2$group.y<-NULL
+
+c.vtl2$sd<-c.vtl2$sd.x
+c.vtl2$sd.x<-NULL
+c.vtl2$sd.y<-NULL
+
+
+# LM models with acc
+# lm model for acc
+m3.correct <- lm(correct ~ age, data=c.f02)
+
+# Assign residuals of F0 and VTL models to variables
+r.correct<-residuals(m3.correct)
+
+# Merge residuals variables with data frames for F0 and VTL JNDs
+c.f02<-merge.data.frame(r.correct,c.f02, by="row.names",all.x=TRUE)
+c.f02$r.correct <- c.f02$x
+c.vtl2<-merge.data.frame(r.correct,c.vtl2, by="row.names",all.x=TRUE)
+c.vtl2$r.correct <- c.vtl2$x
+
+# Set x to 0 for next merge of data frames
+c.f02$x<-NULL
+c.vtl2$x<-NULL
+
+
+
+options(digits=7)
+
+# Look at the correlation between residuals for F0 JNDs (fishy) and residuals for overall correct scores (crm)
+cor.test(c.f02$thrs.g.log,c.f02$correct)
+
+# Look at the correlation between residuals for VTL JNDs (fishy) and residuals for overall correct scores (crm)
+cor.test(c.vtl2$thrs.g.log,c.vtl2$correct)
+
+
+
+
+# Look at the correlation between residuals for F0 JNDs (fishy) and residuals for overall correct scores (crm)
+cor.test(c.f02$r.f0.jnd,c.f02$r.correct)
+
+# Look at the correlation between residuals for VTL JNDs (fishy) and residuals for overall correct scores (crm)
+cor.test(c.vtl2$r.vtl.jnd,c.vtl2$r.correct)
+
+
+```
+
+
+
+

@@ -1,0 +1,1160 @@
+---
+title: "CI Results Plot"
+author: "Leanne Nagels"
+date: "Generated on: `r date()`"
+output: 
+  html_document:
+    toc: true
+    code_folding: show
+    toc_float: 
+        collapsed: false
+        smooth_scroll: true
+    number_sections: false
+---
+
+# Description 
+This R Markdown File can be used to plot results of CI children for the Gender experiment from the PICKA Project.
+
+# Load packages and data
+Load the required packages and download the required files. 
+
+```{r setup, message=F, echo=F, eval=T}
+# some custom options to generate a nice html file
+options(digits = 3)
+options(width=100)
+library(knitr)
+opts_chunk$set(cache=F, comment='#', tidy = T, tidy.opts=list(blank=T, width.cutoff=100), fig.align='center', message=T, warning=T, fig.width=8, fig.height=8, dev='png',eval=T)
+
+# test if the necessary packages are installed if not, install them
+packages <- c("ggplot2", "RColorBrewer", "reshape2","Rmisc","lmerTest","lme4","optimx","vctrs", "moments","ez","DescTools","optimx","ggpubr","ggnewscale")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())), repos='http://cran.us.r-project.org')  
+}
+
+# Load required packages
+library(ggplot2)
+library(RColorBrewer)
+library(reshape2)
+library(Rmisc)
+library(lmerTest)
+library(lme4)
+library(optimx)
+library(moments)
+library(ez)
+library(DescTools)
+library(optimx)
+library(ggpubr)
+library(ggnewscale)
+library(car)
+
+# Set PICKA WD for CI data
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/PICKA Experiments/')
+
+# Read CSV file Results Gender
+CI.dat<-read.csv('./Experiments/gender/results/gen_db_responses.csv',header=TRUE)
+
+# Add variable for female responses
+CI.dat$is_woman = CI.dat$response=='woman'
+
+# Open demographics table with subject,age (yy;mm), group, gender, and vocabulary score
+CI.dem<-read.table('demographsCI.txt', header=TRUE)
+CI.dem$group<-revalue(CI.dem$group, c("04-06"="4-6", "06-08"="6-8", "08-10"="8-10", "10-12"="10-12", "12-14"="12-14", "14-17"="14-17"))
+
+
+CI.dem$group<-factor(CI.dem$group, levels=c("4-6","6-8","8-10","10-12", "12-14", "14-17"))
+
+
+# Merge dataframes
+CI.dat<-merge.data.frame(CI.dat,CI.dem, by='subject')
+
+#CI.dat$subject<-droplevels(CI.dat$subject)
+
+# Leave out partial data from subject nl_CIK009 
+CI.dat<-CI.dat[CI.dat$subject!="nl_CIK009",]
+
+
+### Set PICKA WD for NH data
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/PICKA Experiments_NH/')
+
+# Read CSV file Results Gender
+nh.dat<-read.csv('./Experiments/gender/results/gen_db_responses.csv',header=TRUE)
+
+# Add variable for female responses
+nh.dat$is_woman = nh.dat$response=='woman'
+
+# Open demographics table with subject,age (yy;mm), group, gender, and vocabulary score
+nh.dem<-read.table('demographs.txt', header=TRUE)
+
+nh.dem$group<-revalue(nh.dem$group, c("04-06"="4-6", "06-08"="6-8", "08-10"="8-10", "10-12"="10-12", "12-14"="12-14", "14-17"="14-17","adults"="Adults"))
+
+nh.dem$group<-factor(nh.dem$group, levels=c("4-6","6-8","8-10","10-12","12-14", "14-17","Adults"))
+
+# Merge dataframes
+nh.dat<-merge.data.frame(nh.dat,nh.dem, by='subject')
+
+# no UK or CI partiCIpants in NH datastruct
+nh.dat <- nh.dat[grepl('gb',nh.dat$subject)!=1,]
+nh.dat <- nh.dat[grepl('CI',nh.dat$subject)!=1,]
+
+
+#nh.dat$subject <- droplevels(nh.dat$subject)
+
+#create same number of variables to merge data frames
+nh.dat$expci <- '-'
+
+#add variable to identify CI and NH groups
+CI.dat$CI<-"CI"
+nh.dat$CI<-"NH"
+
+#merge data frames
+dat<-rbind(CI.dat, nh.dat)
+
+# Variable CI is a factor
+dat$CI<-as.factor(dat$CI)
+dat$CI<-relevel(dat$CI, ref="NH")
+
+
+#Add exp CI variable for CI children
+dat$expci<-0
+subjects<-unique(CI.dat$subject)
+for (i in subjects){
+dat[dat$subject==i,]$expci<-CI.dem[CI.dem$subject==i,]$expci
+}
+
+
+
+```
+
+
+# Information data
+
+```{r lookat}
+#head(dat)
+#str(dat)
+#summary(dat)
+
+
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+
+# Normalize f0 and vtl differences
+dat$df0_norm<-(-(dat$df0/12)-0.5)
+dat$dvtl_norm<-(dat$dvtl/3.6)-0.5
+
+
+# Log-transform age 
+dat$age_log = log(dat$age)
+
+
+```
+
+
+# New analysis BK units
+``` {r Bk units conversion}
+
+
+# Coefficients for F0
+Gen_coef <- glmer(is_woman ~ (df0_norm+dvtl_norm|subject), 
+                  data = dat, 
+                  family=binomial,
+                  control = glmerControl(optimizer="optimx",
+                                                 optCtrl =
+                                                list(method="nlminb")))
+
+coef(Gen_coef)
+
+
+# store cue weights for df0_norm and dvtl_norm
+c <- coef(Gen_coef)$subject
+c$subject <- rownames(c)
+c$df0_norm_coef<-c$df0_norm
+c$dvtl_norm_coef<-c$dvtl_norm
+c$df0_norm<-NULL
+c$dvtl_norm<-NULL
+
+head(c)
+
+
+# Add df0_norm and dvtl_norm coefficients to dat dataframe
+dat<-merge.data.frame(dat,c, by='subject')
+
+# Add dem to c dataframe
+c<-merge.data.frame(c, nh.dem, by='subject')
+
+#add variable to identify CI and NH groups
+c$CI<-"NA"
+c[grepl('CI',c$subject)==1,]$CI<-"CI"
+c[grepl('NH',c$subject)==1,]$CI<-"NH"
+
+
+#Add expCI variable for CI children
+c$expci<-0
+subjects<-unique(c[c$CI=="CI",]$subject)
+for (i in subjects){
+c[c$subject==i,]$expci<-CI.dem[CI.dem$subject==i,]$expci
+}
+
+
+# Convert coefficients to BK units
+c$df0_bk <- -(c$df0_norm_coef/(12*log(2)))
+c$dvtl_bk <- -(c$dvtl_norm_coef/(3.6*log(2)))
+
+# Make dataframe to plot in one figure
+c.1<-c[rep(1:nrow(c),each=2),]
+c.1$dir_voice<-c("F0","VTL")
+c.1$dir_voice<-as.factor(c.1$dir_voice)
+c.1$bk<-0
+c.1[c.1$dir_voice=="F0",]$bk<-c.1[c.1$dir_voice=="F0",]$df0_bk
+c.1[c.1$dir_voice=="VTL",]$bk<-c.1[c.1$dir_voice=="VTL",]$dvtl_bk
+
+# Add plot age variable for plot
+c.1$plot_age<-c.1$age
+c.1[c.1$group=="Adults",]$plot_age <- c(18.1, 18.3, 18.5, 18.6, 18.7, 18.8, 18.9, 19, 19.1, 19.2, 19.3, 19.4, 19.5, 19.7, 19.9)
+
+
+# # Add dem to c dataframe
+# c.f0<-merge.data.frame(c.f0, nh.dem, by='subject')
+# c.vtl<-merge.data.frame(c.vtl, nh.dem, by='subject')
+
+# Add variable CI to indicate group
+c.1$CI<-0
+c.1[grepl('CI',c.1$subject)==1,]$CI<-"CI"
+c.1[grepl('NH',c.1$subject)==1,]$CI<-"NH"
+
+
+#Add expCI variable for CI children
+c.1$expci<-0
+subjects<-unique(c.1[c.1$CI=="CI",]$subject)
+for (i in subjects){
+c.1[c.1$subject==i,]$expci<-CI.dem[CI.dem$subject==i,]$expci
+}
+
+
+#revalue group for plotting, weird unsolved bug
+c.1$group<-revalue(c.1$group, c("4-6"="04-06", "6-8"="06-08", "8-10"="08-10", "10-12"="10-12", "12-14"="12-14", "14-17"="14-17","Adults" = "Adults"))
+
+
+# only coefficients of NH
+c.1.nh<-c.1[c.1$CI=="NH",]
+# only coefficients of NH kids
+c.1.nh.kid<-c.1.nh[c.1.nh$group!="Adults",]
+
+
+fitlm = lm(bk ~ age*dir_voice, data = c.1.nh.kid)
+c.1.nh.kid$predlm = predict(fitlm)
+predslm = predict(fitlm, interval = "prediction",level=0.5)
+datlm = cbind(c.1.nh.kid, predslm)
+
+
+c.1$bk<-as.numeric(c.1$bk)
+datlm$bk<-as.numeric(datlm$bk)
+
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+# Improvement 
+fig3a <- ggplot(c.1, aes(x = plot_age, y = bk, fill =group)) +
+geom_boxplot(data=c.1[c.1$CI=="NH",], aes(x = plot_age, y = bk, 
+      fill = group), alpha=0.1, color="grey",show.legend = FALSE,
+      outlier.shape = NA) +
+geom_point(data=c.1[c.1$CI=="CI",], aes(x = age, y = bk, color=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+scale_y_continuous(name = "Cue weight (Bk/st)", breaks = c(0.0, 1.5, 2.5)) + 
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ dir_voice) +
+ # geom_hline(yintercept=mean(c.1$bk), linetype="dashed", color = "black") +
+  geom_ribbon(data=datlm, 
+               aes(ymin = lwr, ymax = upr, fill = group, color = NULL),
+                alpha = .15, show.legend = FALSE) +
+  ggtitle("F0 and VTL weighting coeffiCIents") +
+  theme_bw() +
+  theme(plot.title = element_blank(),
+        text = element_text(size = 22),
+        strip.text = element_text(size = 22),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 22),
+        axis.text.y=element_text(size = 22),
+        legend.text = element_text(size = 22),
+        legend.position = "bottom",
+        legend.title = element_text(size=22, face="bold"))
+# Show plot
+fig3a
+
+
+
+#new hearing age groups
+c.1$group.expci<-0
+c.1[c.1$CI=="CI" & c.1$expci>= 4 & c.1$expci<6,]$group.expci<- "04-06"
+c.1[c.1$CI=="CI" & c.1$expci>=6 & c.1$expci<8,]$group.expci<- "06-08"
+c.1[c.1$CI=="CI" & c.1$expci>=8 & c.1$expci<10,]$group.expci<- "08-10"
+c.1[c.1$CI=="CI" & c.1$expci>=10 & c.1$expci<12,]$group.expci<- "10-12"
+c.1[c.1$CI=="CI" & c.1$expci>=12 & c.1$expci<14,]$group.expci<- "12-14"
+c.1[c.1$CI=="CI" & c.1$expci>=14 & c.1$expci<17,]$group.expci<- "14-17"
+#c.1[c.1$CI=="CI" & c.1$expci>17.1,]$group.expci<- "Adults"
+
+fig3b <- ggplot(c.1, aes(x = age, y = bk, fill =group)) +
+geom_boxplot(data=c.1[c.1$CI=="NH",], aes(x = plot_age, y = bk, 
+      fill = group), alpha=0.1, color="grey",
+      show.legend = FALSE,outlier.shape = NA) +
+geom_point(data=c.1[c.1$CI=="CI",], aes(x = expci, y = bk, color=group, fill=group),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+scale_y_continuous(name = "Cue weight (Bk/st)", breaks = c(-1.0, 0.0, 1.5, 2.5)) + 
+  scale_x_continuous(name = "Hearing age (yrs)", breaks = c(2,4,6,8,10,12,14,16,19),
+                     labels = c("2","4","6","8","10","12","14","16","Adults"),
+                     limits = c(1.9,20.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#9E0059","#a4c49e","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs","Adults")) +
+  facet_wrap(~ dir_voice) +
+  geom_ribbon(data=datlm, 
+               aes(ymin = lwr, ymax = upr, fill = group, color = NULL),
+                alpha = .15, show.legend = FALSE) +
+  ggtitle("F0 and VTL weighting coefficients") +
+  theme_bw() +
+  theme(plot.title = element_blank(),
+        text = element_text(size = 22),
+        strip.text = element_text(size = 22),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 22),
+        axis.text.y=element_text(size = 22),
+        legend.text = element_text(size = 22),
+        legend.position = "bottom",
+        legend.title = element_text(size=22, face="bold"))
+# Show boxplot F
+fig3b
+
+
+
+CIs<-ggarrange(fig3a,fig3b,nrow=2,ncol=1,common.legend = TRUE, legend="bottom", labels="AUTO", font.label = list(size=22))
+
+CIs
+
+
+ggsave(file="Figure 3 - Gender CI data.png", units = c("cm"), width = 28,height = 35, dpi = 600)
+ggsave(file="Figure 3 - Gender CI data.pdf", units = c("cm"), width = 28, height = 35, dpi = 600)
+
+
+# CIs.ASA<-ggarrange(fig3a,fig3b,nrow=1,ncol=2,common.legend = TRUE, legend="bottom")
+# 
+# annotate_figure(CIs.ASA, top = text_grob("Fig. 2", color = "black", face = "bold", size = 30))
+# 
+# 
+# ggsave(file="ASA Poster Gender Bks.png", units = c("cm"), width = 70,height = 28, dpi = 600)
+# 
+# 
+
+
+#ggsave(file="Gen_coefficients.jpg", units = c("cm"),dpi = 300)
+
+
+```
+
+
+
+# RQ1 - Check developmental effect
+``` {r lmer developmental effect}
+
+c.1$age_log<-log(c.1$age)
+c.1.kids<-c.1[c.1$group!="Adults",]
+#c.1.kids$group<-droplevels(c.1.kids$group)
+
+# Full lmer model with interaction dir_voice*age*CI
+Gender_m0 <- lmer(bk ~ dir_voice*age_log*CI + (1|subject),
+                   data = c.1.kids, REML=FALSE)
+
+#save(Gender_m0, file='Gender_m0.Rdata')
+
+
+# Lmer model with fixed effects of dir_voice*age + age*CI + dir_voice*CI
+Gender_m1<-lmer(bk ~ dir_voice*age + age*CI + dir_voice*CI +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+
+#save(Gender_m1, file='Gender_m1.Rdata')
+
+
+# Three-way interaction dir_voice*age*CI does not improve the model
+anova(Gender_m1,Gender_m0)
+
+
+# Lmer model without dir_voice*age
+Gender_m2<-lmer(bk ~ age*CI + dir_voice*CI +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+
+#save(Gender_m2, file='Gender_m2.Rdata')
+
+# Interaction dir_voice*age does not significantly improve the model
+anova(Gender_m2,Gender_m1)
+
+
+# Lmer model without age*CI
+Gender_m3<-lmer(bk ~ dir_voice*age + dir_voice*CI +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+
+#save(Gender_m3, file='Gender_m3.Rdata')
+
+# Interaction age*CI does not significantly improve the model
+anova(Gender_m3,Gender_m1)
+
+
+# Lmer model without dir_voice*CI
+Gender_m4<-lmer(bk ~ dir_voice*age + age*CI +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+#save(Gender_m4, file='Gender_m4.Rdata')
+
+# Interaction dir_voice*CI does not significantly improve the model
+anova(Gender_m4,Gender_m1)
+
+# Continue with Model M4
+anova(Gender_m1, Gender_m2, Gender_m3, Gender_m4)
+
+
+
+# Lmer model without dir_voice*age
+Gender_m5<-lmer(bk ~ dir_voice + age*CI +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+#save(Gender_m5, file='Gender_m5.Rdata')
+
+# Interaction dir_voice*age significantly improves the model, i.e., model fit is significantly worse without it.
+anova(Gender_m4,Gender_m5)
+
+
+
+# Lmer model without age*CI
+Gender_m6<-lmer(bk ~ dir_voice*age + CI +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+#save(Gender_m6, file='Gender_m6.Rdata')
+
+# Interaction age*CI does not significantly improve the model
+anova(Gender_m4,Gender_m6)
+
+
+#Continue with Model M6
+
+# Lmer model without dir_voice*age
+Gender_m7<-lmer(bk ~ dir_voice + age + CI +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+#save(Gender_m7, file='Gender_m7.Rdata')
+
+# Interaction dir_voice*age significantly improves the model!
+anova(Gender_m7,Gender_m6)
+
+
+# Lmer model without CI
+Gender_m8<-lmer(bk ~ dir_voice*age +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+#save(Gender_m8, file='Gender_m8.Rdata')
+
+# Effect of CI does not significantly improve the model!
+anova(Gender_m8,Gender_m6)
+
+
+# Lmer model without dir_voice*age
+Gender_m9<-lmer(bk ~ dir_voice + age +
+                  (1|subject),
+                   data = c.1.kids, REML=FALSE)
+#save(Gender_m9, file='Gender_m9.Rdata')
+
+# Interaction dir_voice*age significantly improves the model!
+anova(Gender_m9,Gender_m8)
+
+
+
+### Gender_m8 is the best fitting model
+
+# Look at coefficients and p-values
+Anova(Gender_m8)
+
+summary(Gender_m8)
+
+### Intermediate conclusion ###
+
+# - Children's weighting increases more with age for VTL than for F0. 
+
+
+# calculate weight ratios
+ratio.adults <- mean(c.1[c.1$group=="Adults",]$df0_norm_coef/c.1[c.1$group=="Adults",]$dvtl_norm_coef)
+
+ratio.kids <- mean(c.1[c.1$group!="Adults",]$df0_norm_coef/c.1[c.1$group!="Adults",]$dvtl_norm_coef)
+
+ratio.kids/ratio.adults
+
+
+ratio.adults.f0 <- mean(c.1[c.1$group=="Adults",]$df0_norm_coef)
+ratio.adults.vtl <- mean(c.1[c.1$group=="Adults",]$dvtl_norm_coef)
+
+
+ratio.kids.f0 <- mean(c.1[c.1$group!="Adults",]$df0_norm_coef)
+ratio.kids.vtl <- mean(c.1[c.1$group!="Adults",]$dvtl_norm_coef)
+
+
+# add variable that represents the ratio between F0 and VTL weighting 
+c.1$ratio<-c.1$df0_norm_coef/c.1$dvtl_norm_coef
+
+# set reference level of group to Adults
+c.1$group<-relevel(c.1$group, ref = "Adults")
+
+# perform Dunnett's test on subsets of F0 and VTL cues
+# significant difference only for 4-6 year-olds and adults
+DunnettTest(bk~group,data=c.1[c.1$dir_voice=="F0",])
+# significant difference for 4-6, 6-8, 8-10 year-olds and adults
+DunnettTest(bk~group,data=c.1[c.1$dir_voice=="VTL",])
+
+# perform Dunnett's test on the ratio between F0 and VTL
+# no differences in ratio between groups
+DunnettTest(ratio~group,data=c.1[seq(1,nrow(c.1),2),])
+
+# perform Dunnett's test on the intercepts
+# intercepts are all significantly different for each group
+DunnettTest(`(Intercept)`~group,data=c.1[seq(1,nrow(c.1),2),])
+
+
+
+
+```
+
+
+# Gradient plot
+``` {r gradient plot}
+
+# Upload Fuller et al. (2014) data
+setwd('C:/Users/leann/Downloads/Fuller_etal_2014')
+
+# Read data
+Fuller.dat<-read.csv('./Fuller_etal_2014_JARO.csv',header=TRUE)
+head(Fuller.dat)
+
+# Select data from only CI adults
+Fuller.dat.ci<-Fuller.dat[Fuller.dat$grp=="CI",]
+
+# Select data from only conditions that were tested in this study, e.g. F0 0st, 6st, and 12st and VTL 1.00
+Fuller.dat.ci.clean<-Fuller.dat.ci[Fuller.dat.ci$f0==0|Fuller.dat.ci$f0==6|Fuller.dat.ci$f0==12,]
+
+Fuller.dat.ci.clean$df0<-0
+Fuller.dat.ci.clean[Fuller.dat.ci.clean$f0==12,]$df0<- -12
+Fuller.dat.ci.clean[Fuller.dat.ci.clean$f0==6,]$df0<- -6
+Fuller.dat.ci.clean[Fuller.dat.ci.clean$f0==0,]$df0<-0
+
+Fuller.dat.ci.clean<-Fuller.dat.ci.clean[Fuller.dat.ci.clean$vtl==1.00|Fuller.dat.ci.clean$vtl==0.91|Fuller.dat.ci.clean$vtl==0.81,]
+
+# Convert to st
+Fuller.dat.ci.clean$dvtl<-0
+Fuller.dat.ci.clean[Fuller.dat.ci.clean$vtl==1.00,]$dvtl<-0.0
+Fuller.dat.ci.clean[Fuller.dat.ci.clean$vtl==0.91,]$dvtl<-1.8
+Fuller.dat.ci.clean[Fuller.dat.ci.clean$vtl==0.81,]$dvtl<-3.6
+
+# Add variable is_woman
+Fuller.dat.ci.clean$is_woman<-"FALSE"
+Fuller.dat.ci.clean[Fuller.dat.ci.clean$response=="woman",]$is_woman<-"TRUE"
+
+Fuller.dat.ci.clean$is_woman<-as.logical(as.character(Fuller.dat.ci.clean$is_woman))
+
+Fuller.dat.ci.clean$group<-"CI Adults"
+Fuller.dat.ci.clean$group.names<-"CI Adults"
+
+Fuller.dat.ci.clean$group<-as.factor(as.character(Fuller.dat.ci.clean$group))
+Fuller.dat.ci.clean$group.names<-as.factor(as.character(Fuller.dat.ci.clean$group.names))
+
+
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+
+
+CI.dat$group.names<-revalue(CI.dat$group, c("4-6"="4-6 yrs", "6-8"="6-8 yrs", "8-10"="8-10 yrs", "10-12"="10-12 yrs","12-14"="12-14 yrs", "14-17"="14-17 yrs"))
+
+
+CI.dat$subject.names<-CI.dat$subject
+CI.dat$subject.names<-sub("nl_","",CI.dat$subject.names)
+
+
+fig4a<-ggplot(data=aggregate(is_woman~df0+dvtl+subject+
+              subject.names+group+                    group.names, subset(CI.dat), FUN=mean)) +
+    geom_raster(aes(x=df0, y=dvtl, fill=is_woman)) +
+    scale_fill_viridis_c(NULL, begin=0, end=1, option="C", guide=guide_colourbar(barheight=10, barwidth=2), limits=c(0,1), breaks=c(0,.25, .5, .75, 1), labels=c('Man (%)', '', '', '', 'Woman (%)')) +
+    facet_wrap(~group.names+subject.names, ncol=7) +
+    scale_x_continuous("F0 (st)", breaks=sort(unique(dat$df0)), labels=function(x){ format(x, digits=1) }) +
+    scale_y_reverse("VTL (st)", breaks=c(0.0,1.8,3.6), labels=function(x){ format(x, digits=2) }) +
+    #guides(fill=F) +
+    theme_bw() +
+    theme(aspect.ratio = 1) +
+    theme(strip.background = element_blank(), 
+          text = element_text(size = 22),
+          strip.text = element_text(size = 20, face="bold"),
+          axis.title = element_text(size=24, face="bold"),
+          axis.title.y = element_text(margin = margin(t = 0, r = 20, 
+                                                      b = 0, l = 0)),
+          axis.title.x = element_text(margin = margin(t = 20, r = 0, 
+                                                      b = 0, l = 0)),
+          axis.text.x=element_text(size = 22),
+          axis.text.y=element_text(size = 22),
+          legend.text = element_text(size = 22),
+          panel.spacing.y = unit(1, "lines"),
+          legend.title = element_text(size=22, hjust=.5))
+
+fig4a
+
+
+#ggsave(filename='Figure 4A - Gender Gradient CI.png', units = c("cm"), width = 28,height = 35, dpi=600)
+
+
+
+s = summarySE(data=nh.dat, measurevar='is_woman', groupvars=c('dvtl', 'df0', 'group'))
+
+s2 = summarySE(data=Fuller.dat.ci.clean, measurevar='is_woman', groupvars=c('dvtl', 'df0', 'group'))
+
+s.all<-rbind(s,s2)
+
+s.all$group.names<-revalue(s.all$group, c("4-6"="4-6 yrs", "6-8"="6-8 yrs", "8-10"="8-10 yrs", "10-12"="10-12 yrs","12-14"="12-14 yrs", "14-17"="14-17 yrs", "Adults"="Adults", "CI Adults"="CI Adults \nFuller et al. (2014)"))
+
+
+fig4b <-ggplot(data=s.all) +
+  geom_raster(aes(x=df0, y=dvtl, fill=is_woman)) +
+  scale_fill_viridis_c(NULL, begin=0, end=1, option="C", guide=guide_colourbar(barheight=10, barwidth=2), limits=c(0,1), breaks=c(0,.25, .5, .75, 1), labels=c('Man', '', '', '', 'Woman')) +
+  facet_grid(cols=vars(group.names)) +
+  scale_x_continuous("F0 (st)", breaks=sort(unique(dat$df0)), labels=function(x){ format(x, digits=1) }) +
+  scale_y_reverse("VTL (st)", breaks=sort(unique(dat$dvtl)), labels=function(x){ format(x, digits=2) }) +
+    theme_bw() +
+    theme(aspect.ratio = 1) +
+    theme(strip.background = element_blank(), 
+          text = element_text(size = 22),
+          strip.text = element_text(size = 20, face="bold"),
+          axis.title = element_text(size=24, face="bold"),
+          axis.title.y = element_text(margin = margin(t = 0, r = 20, 
+                                                      b = 0, l = 0)),
+          axis.title.x = element_text(margin = margin(t = 20, r = 0, 
+                                                      b = 0, l = 0)),
+          axis.text.x=element_text(size = 22),
+          axis.text.y=element_text(size = 22),
+          legend.text = element_text(size = 22),
+          legend.title = element_text(size=22, hjust=.5))
+
+fig4b
+
+#ggsave(filename='Figure 4b - Gender Gradient NH.png', units = c("cm"), width = 28,height = 8, dpi=600)
+
+
+Gradients<-ggarrange(fig4a,fig4b,nrow=2,ncol=1,common.legend = TRUE, labels="AUTO", legend = "right", font.label = list(size=22), heights = c(1.8,0.8), widths = c(1,1.1))
+
+Gradients
+ggsave(filename='Figure 4 - Gender Gradient Plots.png', units = c("cm"), width = 46,height = 35, dpi=600)
+
+
+
+
+
+
+
+
+fig4a.ASA<-ggplot(data=aggregate(is_woman~df0+dvtl+subject + subject.names
+            +group+group.names, subset(CI.dat), FUN=mean)) +
+    geom_raster(aes(x=df0, y=dvtl, fill=is_woman)) +
+    scale_fill_viridis_c(NULL, begin=0, end=1, option="C", guide=guide_colourbar(barheight=10, barwidth=2), limits=c(0,1), breaks=c(0,.25, .5, .75, 1), labels=c('Man (%)', '', '', '', 'Woman (%)')) +
+    facet_wrap(~group.names+subject.names, ncol=5) +
+    scale_x_continuous("F0 (st)", breaks=sort(unique(dat$df0)), labels=function(x){ format(x, digits=1) }) +
+    scale_y_reverse("VTL (st)", breaks=c(0.0,1.8,3.6), labels=function(x){ format(x, digits=2) }) +
+    #guides(fill=F) +
+    theme_bw() +
+    theme(aspect.ratio = 1) +
+    theme(strip.background = element_blank(), 
+          text = element_text(size = 22),
+          strip.text = element_text(size = 20, face="bold"),
+          axis.title = element_text(size=24, face="bold"),
+          axis.title.y = element_text(margin = margin(t = 0, r = 20, 
+                                                      b = 0, l = 0)),
+          axis.title.x = element_text(margin = margin(t = 20, r = 0, 
+                                                      b = 0, l = 0)),
+          axis.text.x=element_text(size = 22),
+          axis.text.y=element_text(size = 22),
+          legend.text = element_text(size = 22),
+          panel.spacing.y = unit(1, "lines"),
+          legend.title = element_text(size=22, hjust=.5))
+
+fig4a.ASA
+
+
+Gradients_Poster<-ggarrange(fig4a.ASA,fig4b,nrow=2,ncol=1,common.legend = TRUE, legend = "right", heights = c(2,0.8), widths = c(2,0.8))
+
+annotate_figure(Gradients_Poster, top = text_grob("Fig. 3", color = "black", face = "bold", size = 30))
+
+
+ggsave(filename='ASA Poster Gradients.png', units = c("cm"), width = 70,height = 28, dpi=600)
+
+
+
+ASA<-ggarrange(fig3a,Gradients_Poster,nrow=1,ncol=2,common.legend = FALSE, heights = c(0.8,1), widths = c(0.8,1), font.label = list(size=22))
+
+ggsave(filename='ASA Poster Gender.png', units = c("cm"), width = 70,height = 28, dpi=600)
+
+
+```
+
+
+
+
+
+
+# RQ2 - Check how development differs in CI from NH children
+``` {r lmer adult-level performance}
+
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+c.nh<-c[c$CI=="NH",]
+c.ci<-c[c$CI=="CI",]
+
+# Subset NH participants coefficients
+# Make dataframe to plot in one figure and have two rows per participant
+c.nh.2<-c.nh[rep(1:nrow(c.nh),each=2),]
+c.nh.2$dir_voice<-c("F0","VTL")
+c.nh.2$dir_voice<-as.factor(c.nh.2$dir_voice)
+c.nh.2$bk<-0
+c.nh.2[c.nh.2$dir_voice=="F0",]$bk<-c.nh.2[c.nh.2$dir_voice=="F0",]$df0_bk
+c.nh.2[c.nh.2$dir_voice=="VTL",]$bk<-c.nh.2[c.nh.2$dir_voice=="VTL",]$dvtl_bk
+
+
+# #revalue group for plotting, weird unsolved bug
+c.nh.2$group<-revalue(c.nh.2$group, c("4-6"="04-06", "6-8"="06-08", "8-10"="08-10", "10-12"="10-12"))
+
+means <- summarySE(c.nh.2, measurevar="bk", groupvars=c("group","dir_voice"))
+
+
+# Subset CI children's coefficients
+c.ci<-c[c$CI=="CI",]
+# Make dataframe to plot in one figure and have two rows per participant
+c.ci.2<-c.ci[rep(1:nrow(c.ci),each=2),]
+c.ci.2$dir_voice<-c("F0","VTL")
+c.ci.2$dir_voice<-as.factor(c.ci.2$dir_voice)
+c.ci.2$bk<-0
+c.ci.2[c.ci.2$dir_voice=="F0",]$bk<-c.ci.2[c.ci.2$dir_voice=="F0",]$df0_bk
+c.ci.2[c.ci.2$dir_voice=="VTL",]$bk<-c.ci.2[c.ci.2$dir_voice=="VTL",]$dvtl_bk
+
+# #revalue group for plotting, weird unsolved bug
+ c.ci.2$group<-revalue(c.ci.2$group, c("4-6"="04-06", "6-8"="06-08", "8-10"="08-10", "10-12"="10-12"))
+
+
+# 12-year old child will be considered 10-12 and older children as adults
+c.ci.2$group.new<-c.ci.2$group
+c.ci.2[c.ci.2$group.new=="12-14",]$group.new<-"10-12"
+c.ci.2[c.ci.2$group.new=="14-17",]$group.new<-"Adults"
+#c.ci.2$group.new<-droplevels(c.ci.2$group.new)
+
+c.ci.2$mean<-0
+c.ci.2$sd<-0
+groups<-unique(c.ci.2$group.new)
+cues<-unique(c.ci.2$dir_voice)
+subjects <- unique(c.ci.2$subject)
+
+for (i in groups){
+  for (icue in cues) {
+      c.ci.2$mean<-
+        ifelse(c.ci.2$group.new==i & c.ci.2$dir_voice==icue,
+        means[means$group==i & means$dir_voice==icue,]$bk,
+        c.ci.2$mean)
+  }
+}
+
+
+for (i in groups){
+  for (icue in cues) {
+      c.ci.2$sd<-
+        ifelse(c.ci.2$group.new==i & c.ci.2$dir_voice==icue,
+        means[means$group==i & means$dir_voice==icue,]$sd,
+        c.ci.2$sd)
+  }
+}
+
+# calculate z-scores 
+c.ci.2$zscore<-0
+c.ci.2$zscore<-(c.ci.2$bk - c.ci.2$mean)/c.ci.2$sd
+
+
+
+fig3 <- ggplot(c.ci.2, aes(x = age, y = zscore, fill=group.new)) +
+      # geom_boxplot(data = nh.dat, aes(x = plot_age, y = bk, 
+      # fill = group), alpha=0.1, color="grey",show.legend = FALSE,
+      # outlier.shape = NA) + 
+    geom_point(data=c.ci.2, aes(x = age, y = zscore, color=group.new),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  scale_y_continuous(name = "Z-scores", limits = c(-2, 3.5), 
+                     breaks = c(-2,0,2,4,6))+
+  scale_x_continuous(name = "Chronological age (yrs)", breaks = c(2,4,6,8,10,12,14,16),
+                     labels = c("2","4","6","8","10","12","14","16"),
+                     limits = c(1.9,17.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","Adults")) +
+  facet_wrap(~ dir_voice) +
+#  geom_smooth(method="lm", data = nh.dat, aes(x = plot_age, y = bk, fill = group),alpha = .15) + 
+   # geom_ribbon(data=datlm, 
+   #             aes(ymin = lwr, ymax = upr, fill = group, color = NULL),
+   #              alpha = .15, show.legend = FALSE) +
+ # geom_line(data=datlm, aes(y = predlm), size = 1) + 
+    geom_hline(yintercept=-1.96,linetype="dashed", color = "black") +
+    geom_hline(yintercept=1.96,linetype="dashed", color = "black") +
+    theme_bw() +
+    theme(plot.title = element_blank(),
+        text = element_text(size = 22),
+        strip.text = element_text(size = 22),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 22),
+        axis.text.y=element_text(size = 22),
+        legend.text = element_text(size = 22),
+        legend.position = "bottom",
+        legend.title = element_text(size=22, face="bold"))
+
+# Show fig1
+fig3
+
+
+
+# Same analysis for CI children's hearing age
+
+#new hearing age groups
+c.ci.2$group.expci<-0
+c.ci.2$group.expci<-ifelse(c.ci.2$expci<6,"04-06",c.ci.2$group.expci)
+c.ci.2$group.expci<-ifelse(c.ci.2$expci>=6 & c.ci.2$expci<8,"06-08",c.ci.2$group.expci)
+c.ci.2$group.expci<-ifelse(c.ci.2$expci>=8 & c.ci.2$expci<10,"08-10",c.ci.2$group.expci)
+c.ci.2$group.expci<-ifelse(c.ci.2$expci>=10 & c.ci.2$expci<12.1,"10-12",c.ci.2$group.expci)
+c.ci.2$group.expci<-ifelse(c.ci.2$expci>12.1,"Adults",c.ci.2$group.expci)
+
+c.ci.2$mean.expci<-0
+c.ci.2$sd.expci<-0
+groups<-unique(c.ci.2$group.expci)
+cues<-unique(c.ci.2$dir_voice)
+subjects <- unique(c.ci.2$subject)
+
+for (i in groups){
+  for (icue in cues) {
+      c.ci.2$mean.expci<-
+        ifelse(c.ci.2$group.expci==i & c.ci.2$dir_voice==icue,
+        means[means$group==i & means$dir_voice==icue,]$bk,
+        c.ci.2$mean.expci)
+  }
+}
+
+
+for (i in groups){
+  for (icue in cues) {
+      c.ci.2$sd.expci<-
+        ifelse(c.ci.2$group.expci==i & c.ci.2$dir_voice==icue,
+        means[means$group==i & means$dir_voice==icue,]$sd,
+        c.ci.2$sd.expci)
+  }
+}
+
+# calculate z-scores hearing age
+c.ci.2$zscore.expci<-0
+c.ci.2$zscore.expci<-(c.ci.2$bk - c.ci.2$mean.expci)/c.ci.2$sd.expci
+
+
+
+fig4 <- ggplot(c.ci.2, aes(x = expci, y = zscore, fill=group.expci)) +
+      # geom_boxplot(data = nh.dat, aes(x = plot_age, y = bk, 
+      # fill = group), alpha=0.1, color="grey",show.legend = FALSE,
+      # outlier.shape = NA) + 
+    geom_point(data=c.ci.2, aes(x = expci, y = zscore,
+                                color=group.expci),
+         position=position_jitter(width=0.1,height=0),
+         alpha=1,
+         size=4,
+         shape=21,
+         colour="black",
+         show.legend=TRUE) +
+  scale_y_continuous(name = "Z-scores", limits = c(-2, 3.5), 
+                     breaks = c(-2,0,2,4,6))+
+  scale_x_continuous(name = "Hearing age (yrs)", breaks = c(2,4,6,8,10,12,14,16),
+                     labels = c("2","4","6","8","10","12","14","16"),
+                     limits = c(1.9,17.1)) +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#05668D"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","Adults")) +
+    scale_color_manual(name = "Age groups", values = c("#006970", "#8a6e00", "#972e04","#905100","#033d54"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","Adults")) +
+  facet_wrap(~ dir_voice) +
+#  geom_smooth(method="lm", data = nh.dat, aes(x = plot_age, y = bk, fill = group),alpha = .15) + 
+   # geom_ribbon(data=datlm, 
+   #             aes(ymin = lwr, ymax = upr, fill = group, color = NULL),
+   #              alpha = .15, show.legend = FALSE) +
+ # geom_line(data=datlm, aes(y = predlm), size = 1) + 
+    geom_hline(yintercept=-1.96,linetype="dashed", color = "black") +
+    geom_hline(yintercept=1.96,linetype="dashed", color = "black") +
+    theme_bw() +
+    theme(plot.title = element_blank(),
+        text = element_text(size = 22),
+        strip.text = element_text(size = 22),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 22),
+        axis.text.y=element_text(size = 22),
+        legend.text = element_text(size = 22),
+        legend.position = "bottom",
+        legend.title = element_text(size=22, face="bold"))
+
+# Show fig1
+fig4
+
+
+Zscores<-ggarrange(fig3,fig4,nrow=2,ncol=1,common.legend = TRUE, legend="bottom", labels="AUTO", font.label = list(size=22))
+
+Zscores
+
+
+ggsave(file="Figure 5 - Zscores Gender.png", units = c("cm"), width = 25,height = 25, dpi = 600)
+ggsave(file="Figure 5 - Zscores Gender.pdf", units = c("cm"), width = 25, height = 25, dpi = 600)
+
+
+
+
+```
+
+
+
+# RQ5 - Check correlation JNDs and weighting F0 and VTL
+``` {r glmer correlation}
+
+
+# Set PICKA WD for CI data
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/PICKA Experiments/')
+
+# Read CSV file Results Fishy
+fishy.dat<-read.csv('./Experiments/fishy/results/jvo_db_results.csv',header=TRUE)
+
+# no UK partiCIpants in datastruct
+fishy.dat <- fishy.dat[grepl('gb',fishy.dat$subject)!=1,]
+
+
+# Exclude some partiCIpants
+# hearing thresholds too high for normal-hearing criteria
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHA001",]
+# test run
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK100",]
+# incorrect comprehension of the task, only female responses
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK008",]
+# dyslexia
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK022",]
+# only completed Fishy and unreliable responses, no attention
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK043",]
+# autism 
+fishy.dat <- fishy.dat[fishy.dat$subject!="nl_NHK050",]
+
+
+# Rename fishy.dat$dir_voice 
+fishy.dat$dir_voice <- ifelse(fishy.dat$dir_voice=="male-gpr","F0","VTL")
+fishy.dat$dir_voice<-as.factor(fishy.dat$dir_voice)
+
+# Log-transformed thresholds
+fishy.dat$thrs.a.log<-log(fishy.dat$threshold)
+fishy.dat$thrs.g.log<-log(fishy.dat$threshold_geom)
+
+
+c.cor<-merge.data.frame(c, fishy.dat, by='subject')
+
+# Only child data
+c.cor.kids<-c.cor[c.cor$group!="Adults",]
+c.cor.kids$group<-droplevels(c.cor.kids$group)
+
+# Create data subsets with only F0 or only VTL data
+c.cor.kids.f0<-c.cor.kids[c.cor.kids$dir_voice=="F0",]
+c.cor.kids.vtl<-c.cor.kids[c.cor.kids$dir_voice=="VTL",]
+
+
+```
+
+
+# RQ5 - Check correlation JNDs and weighting F0 and VTL Geometric mean
+``` {r glmer correlation geom}
+### For geometric mean
+
+# For geometric mean
+# look at correlation non-residuals
+cor.test(x=c.cor.kids.f0$thrs.g.log, 
+         y=c.cor.kids.f0$df0_bk, method="pearson")
+cor.test(x=c.cor.kids.vtl$thrs.g.log, 
+         y=c.cor.kids.vtl$dvtl_bk, method="pearson")
+
+# subset of CI children
+c.cor.kids.f0.ci<-c.cor.kids.f0[c.cor.kids.f0$CI=="CI",]
+c.cor.kids.vtl.ci<-c.cor.kids.vtl[c.cor.kids.vtl$CI=="CI",]
+
+cor.test(x=c.cor.kids.f0.ci$thrs.g.log, 
+         y=c.cor.kids.f0.ci$df0_bk, method="pearson")
+cor.test(x=c.cor.kids.vtl.ci$thrs.g.log, 
+         y=c.cor.kids.vtl.ci$dvtl_bk, method="pearson")
+
+
+# LM models with geometric mean
+# lm model for F0 JNDs 
+f0_m1_geom <- lm(thrs.g.log ~ age, data=c.cor.kids.f0.ci)
+
+# lm model for VTL JNDs
+vtl_m1_geom <- lm(thrs.g.log ~ age, data=c.cor.kids.vtl.ci)
+
+
+# Assign residuals of F0 and VTL models to variables
+r.f0.jnd<-residuals(f0_m1_geom)
+r.vtl.jnd<-residuals(vtl_m1_geom)
+
+
+# Merge residuals variables with data frames for F0 and VTL JNDs
+c.cor.kids.f0.ci<-merge.data.frame(r.f0.jnd,c.cor.kids.f0.ci, by="row.names",all.x=TRUE)
+c.cor.kids.f0.ci$r.f0.jnd <- c.cor.kids.f0.ci$x
+
+c.cor.kids.vtl.ci<-merge.data.frame(r.vtl.jnd,c.cor.kids.vtl.ci, by="row.names",all.x=TRUE)
+c.cor.kids.vtl.ci$r.vtl.jnd <- c.cor.kids.vtl.ci$x
+
+# Set x to 0 for next merge of data frames
+c.cor.kids.f0.ci$x<-NULL
+c.cor.kids.vtl.ci$x<-NULL
+
+# lm model for F0 cue weights
+f0_m2 <- lm(df0_bk ~ age, data=c.cor.kids.f0.ci)
+anova(f0_m2)
+# lm model for VTL cue weights
+vtl_m2 <- lm(dvtl_bk ~ age, data=c.cor.kids.vtl.ci)
+anova(vtl_m2)
+
+# Assign residual values of models to variables
+r.f0.gen<-residuals(f0_m2)
+r.vtl.gen<-residuals(vtl_m2)
+
+# Merge residuals variables with data frames for F0 and VTL cue weights
+c.cor.kids.f0.ci$r.f0.gen<-r.f0.gen
+c.cor.kids.vtl.ci$r.vtl.gen <- r.vtl.gen
+
+
+# Set x to 0 for next merge of data frames
+c.cor.kids.f0.ci$x<-NULL
+c.cor.kids.vtl.ci$x<-NULL
+
+
+options(digits=7)
+
+
+# Look at the correlation between residuals for F0 JNDs and residuals (fishy) for F0 coeffients (gender)
+cor.test(c.cor.kids.f0.ci$r.f0.jnd,c.cor.kids.f0.ci$r.f0.gen)
+
+# Look at the correlation between residuals for VTL JNDs and residuals (fishy) for VTL coeffients (gender)
+cor.test(c.cor.kids.vtl.ci$r.vtl.jnd,c.cor.kids.vtl.ci$r.vtl.gen)
+
+
+
+
+```
+
+
+
+
+# Plot correlations
+``` {r plots}
+
+
+# e.g., setwd('C:/Users/leann/PICKA Experiments/')
+setwd('C:/Users/leann/Desktop/CI Paper/Figures')
+
+# # Add plot age variable for plot
+# c.f0$plot_age<-c.f0$age
+# c.f0[c.f0$group=="Adults",]$plot_age <- c(14.1, 14.3, 14.5, 14.6, 14.7, 14.8, 14.9, 15, 15.1, 15.2, 15.3, 15.4, 15.5, 15.7, 15.9)
+# 
+# c.vtl$plot_age<-c.vtl$age
+# c.vtl[c.vtl$group=="Adults",]$plot_age <- c(14.1, 14.3, 14.5, 14.6, 14.7, 14.8, 14.9, 15, 15.1, 15.2, 15.3, 15.4, 15.5, 15.7, 15.9)
+ 
+
+c.cor.kids.f0.ci$r.vtl.jnd<-0
+c.cor.kids.f0.ci$r.vtl.gen<-0
+c.cor.kids.vtl.ci$r.f0.jnd<-0
+c.cor.kids.vtl.ci$r.f0.gen<-0
+
+c.cor.kids.vtl.ci$Row.names<-NULL
+c.cor.kids.f0.ci$Row.names<-NULL
+
+c.g<-rbind(c.cor.kids.f0.ci, c.cor.kids.vtl.ci)
+
+c.g$r.jnd<-0
+c.g[c.g$dir_voice=="F0",]$r.jnd<-
+  c.g[c.g$dir_voice=="F0",]$r.f0.jnd
+c.g[c.g$dir_voice=="VTL",]$r.jnd<-
+  c.g[c.g$dir_voice=="VTL",]$r.vtl.jnd
+
+c.g$r.gen<-0
+c.g[c.g$dir_voice=="F0",]$r.gen<-
+  c.g[c.g$dir_voice=="F0",]$r.f0.gen
+c.g[c.g$dir_voice=="VTL",]$r.gen<-
+  c.g[c.g$dir_voice=="VTL",]$r.vtl.gen
+
+
+
+# Plot E: correlation coefficients
+# add regression line and confidence interval
+e <- ggplot(c.g, aes(x = r.jnd, y = r.gen, color = group,
+                     fill=group, group = 1, legend=TRUE)) +
+  geom_point(size = 3,
+         alpha=1,
+         shape=21,
+         color="black",
+         show.legend=NA) +
+  geom_smooth(aes(x = r.jnd, y = r.gen),method="lm", se=TRUE, fullrange=T,size=1) +
+  scale_x_continuous(name = "Residuals JNDs") +
+  scale_y_continuous(name = "Residuals cue weights") +
+  scale_fill_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+    scale_color_manual(name = "Age groups", values = c("#00AFBB", "#E7B800", "#FC4E07","#F08700","#9E0059","#cef5c6"), labels = c("4-6 yrs","6-8 yrs","8-10 yrs","10-12 yrs","12-14 yrs","14-17 yrs")) +
+  ggtitle("Correlation JNDs and Cue weights") +
+  facet_wrap(~dir_voice) + 
+  theme_bw() +
+  # theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5,
+  #                                 margin = margin(t = 10,b = 20)),
+  #       text = element_text(size = 16),
+  #       axis.title = element_text(face="bold"),
+  #       axis.text.x=element_text(size = 16, margin = margin(t = 10,b = 10)),
+  #       axis.text.y=element_text(size = 16, margin = margin(l = 10,r = 10)))
+    theme(plot.title = element_text(size = 18, face = "bold",hjust=0.5),
+          legend.position = "bottom",
+        text = element_text(size = 16),
+        axis.text.x=element_text(size = 16, hjust=0.5),
+        axis.text.y=element_text(size = 16, hjust=0.5),
+        axis.title = element_text(face="bold"))
+
+# Show plot E
+e
+
+
+
+e2 <-e +
+  theme(plot.title = element_blank(),
+        legend.text = element_text(size=12),
+        text = element_text(size = 12),
+        axis.title = element_text(face="bold"),
+        axis.text.x=element_text(size = 12, margin = margin(t = 1,b = 1)),
+        axis.text.y=element_text(size = 12, margin = margin(l = 1,r = 1)))
+
+
+ggsave(file="Figure 6 - Correlation Fishy x Gender.png", units = c("cm"), width = 15, height = 10, dpi = 600)
+
+
+
+```
+
+
